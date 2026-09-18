@@ -1,0 +1,56 @@
+﻿{
+  "name": "Example Stack",
+  "description": "Demonstration profile featuring a web server, caching layer, and database",
+  "autoStopPreviousOnSwitch": false,
+  "services": [
+    {
+      "id": "nginx-web",
+      "displayName": "Nginx Web Server",
+      "image": "nginx:alpine",
+      "containerName": "demo-nginx",
+      "description": "High performance lightweight web server and reverse proxy",
+      "autoStart": false,
+      "restartPolicy": "unless-stopped",
+      "ports": [
+        {
+          "hostPort": 8080,
+          "containerPort": 80,
+          "protocol": "tcp"
+        }
+      ],
+      "volumes": [
+        {
+          "hostPath": "./volumes/nginx/html",
+          "containerPath": "/usr/share/nginx/html",
+          "isNamedVolume": false
+        }
+      ],
+      "environment": {
+        "TZ": "Europe/Amsterdam"
+      }
+    },
+    {
+      "id": "redis-cache",
+      "displayName": "Redis Cache",
+      "image": "redis:alpine",
+      "containerName": "demo-redis",
+      "description": "In-memory data structure store used as a database and cache",
+      "autoStart": false,
+      "restartPolicy": "unless-stopped",
+      "ports": [
+        {
+          "hostPort": 6379,
+          "containerPort": 6379,
+          "protocol": "tcp"
+        }
+      ],
+      "volumes": [
+        {
+          "hostPath": "./volumes/redis/data",
+          "containerPath": "/data",
+          "isNamedVolume": false
+        }
+      ]
+    }
+  ]
+}

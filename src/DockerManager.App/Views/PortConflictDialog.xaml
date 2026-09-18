@@ -1,0 +1,188 @@
+<Window x:Class="DockerManager.App.Views.PortConflictDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:DockerManager.App.ViewModels"
+        xmlns:models="clr-namespace:DockerManager.App.Models"
+        xmlns:helpers="clr-namespace:DockerManager.App.Helpers"
+        mc:Ignorable="d"
+        Title="{helpers:Loc Ports_Title}" Height="680" Width="820"
+        WindowStartupLocation="CenterOwner"
+        Icon="pack://application:,,,/DockerManager.App;component/app.ico"
+        Background="#F8FAFC" Foreground="#0F172A">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Header -->
+            <RowDefinition Height="Auto"/> <!-- Summary Bar & Stats -->
+            <RowDefinition Height="Auto"/> <!-- Filters & Search -->
+            <RowDefinition Height="*"/>    <!-- Items List -->
+            <RowDefinition Height="Auto"/> <!-- Footer Actions -->
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0" Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="🔍" FontSize="22" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="{helpers:Loc Ports_Title}" FontSize="20" FontWeight="Bold" Foreground="#0F172A" VerticalAlignment="Center"/>
+                </StackPanel>
+                <TextBlock Text="{helpers:Loc Ports_Subtitle}" 
+                           FontSize="12.5" Foreground="#64748B" Margin="0,4,0,0"/>
+            </StackPanel>
+
+            <Button Grid.Column="1" Command="{Binding ScanCommand}" Padding="14,8"
+                    Background="#FFFFFF" BorderBrush="#CBD5E1" BorderThickness="1" Foreground="#1E293B" FontWeight="SemiBold" Cursor="Hand" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{helpers:Loc Ports_Refresh}"/>
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <!-- Summary Bar & Stats -->
+        <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="14,10" Margin="0,0,0,14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Status Summary Text -->
+                <TextBlock Grid.Column="0" Text="{Binding StatusSummary}" FontSize="13" FontWeight="SemiBold" Foreground="#0F172A" VerticalAlignment="Center"/>
+
+                <!-- Badges -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Background="#EF4444" CornerRadius="10" Padding="8,3" Margin="0,0,6,0">
+                        <TextBlock Text="{Binding ConflictCount, StringFormat='{}{0} Conflicten'}" FontSize="11" FontWeight="Bold" Foreground="White"/>
+                    </Border>
+                    <Border Background="#D97706" CornerRadius="10" Padding="8,3" Margin="0,0,6,0">
+                        <TextBlock Text="{Binding WarningCount, StringFormat='{}{0} Waarschuwingen'}" FontSize="11" FontWeight="Bold" Foreground="White"/>
+                    </Border>
+                    <Border Background="#16A34A" CornerRadius="10" Padding="8,3">
+                        <TextBlock Text="{Binding OkCount, StringFormat='{}{0} Vrij / OK'}" FontSize="11" FontWeight="Bold" Foreground="White"/>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Filters & Search -->
+        <Grid Grid.Row="2" Margin="0,0,0,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Filter Buttons -->
+            <StackPanel Grid.Column="0" Orientation="Horizontal">
+                <Button Content="Alles" Command="{Binding SetFilterCommand}" CommandParameter="All"
+                        Padding="12,6" Margin="0,0,6,0" Background="#FFFFFF" Foreground="#1E293B" BorderBrush="#CBD5E1" BorderThickness="1" Cursor="Hand" FontSize="12"/>
+                <Button Content="⚠️ Problemen" Command="{Binding SetFilterCommand}" CommandParameter="Issues"
+                        Padding="12,6" Margin="0,0,6,0" Background="#FFFFFF" Foreground="#D97706" BorderBrush="#CBD5E1" BorderThickness="1" Cursor="Hand" FontSize="12"/>
+                <Button Content="🔴 Conflicten" Command="{Binding SetFilterCommand}" CommandParameter="Conflicts"
+                        Padding="12,6" Margin="0,0,6,0" Background="#FFFFFF" Foreground="#DC2626" BorderBrush="#CBD5E1" BorderThickness="1" Cursor="Hand" FontSize="12"/>
+                <Button Content="🟢 Vrij / OK" Command="{Binding SetFilterCommand}" CommandParameter="Ok"
+                        Padding="12,6" Background="#FFFFFF" Foreground="#16A34A" BorderBrush="#CBD5E1" BorderThickness="1" Cursor="Hand" FontSize="12"/>
+            </StackPanel>
+
+            <!-- Search Box -->
+            <TextBox Grid.Column="1" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" 
+                     Margin="16,0,0,0" Padding="10,6" Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1"
+                     VerticalContentAlignment="Center" FontSize="12"/>
+        </Grid>
+
+        <!-- Items List -->
+        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding FilteredItems}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type models:PortAnalysisItem}">
+                        <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,0,0,10">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <!-- Row 0: Port, Protocol & Status Badge -->
+                                <Grid Grid.Row="0" Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Port Pill -->
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Border Background="#F1F5F9" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="8,4" Margin="0,0,10,0">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{helpers:Loc Card_Ports, StringFormat='{}{0} '}" FontSize="12" Foreground="#64748B" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding Port}" FontSize="14" FontWeight="Bold" Foreground="#0284C7"/>
+                                                <TextBlock Text="{Binding Protocol, StringFormat=' ({0})'}" FontSize="11" Foreground="#64748B" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <TextBlock Text="{Binding StatusText}" FontSize="13" FontWeight="Bold" Foreground="#0F172A" VerticalAlignment="Center"/>
+                                    </StackPanel>
+
+                                    <!-- Severity Badge -->
+                                    <Border Grid.Column="2" CornerRadius="10" Padding="10,4" VerticalAlignment="Center">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="#16A34A"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Severity}" Value="Conflict">
+                                                        <Setter Property="Background" Value="#EF4444"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Severity}" Value="Warning">
+                                                        <Setter Property="Background" Value="#D97706"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="{Binding SeverityBadgeText}" FontSize="11" FontWeight="Bold" Foreground="White"/>
+                                    </Border>
+                                </Grid>
+
+                                <!-- Row 1: Description & Recommendation -->
+                                <Border Grid.Row="1" Background="#FFFBEB" BorderBrush="#FDE68A" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Description}" FontSize="12" Foreground="#334155" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding Recommendation, StringFormat='💡 Oplossing: {0}'}" FontSize="11.5" Foreground="#92400E" FontWeight="SemiBold" 
+                                                   TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Row 2: Detailed Usages -->
+                                <StackPanel Grid.Row="2">
+                                    <TextBlock Text="Gekoppelde bronnen:" FontSize="11" FontWeight="SemiBold" Foreground="#64748B" Margin="0,0,0,4"/>
+                                    <ItemsControl ItemsSource="{Binding Usages}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <DockPanel Margin="0,2,0,2">
+                                                    <TextBlock Text="{Binding SourceType, StringFormat='• {0}:'}" FontSize="11" Foreground="#0284C7" Width="170"/>
+                                                    <TextBlock Text="{Binding Name}" FontSize="11" FontWeight="SemiBold" Foreground="#0F172A" Margin="0,0,10,0"/>
+                                                    <TextBlock Text="{Binding Details}" FontSize="11" Foreground="#64748B"/>
+                                                </DockPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- Footer Actions -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="{helpers:Loc General_Close}" Command="{Binding CloseCommand}" Padding="20,8"
+                    Background="#F1F5F9" Foreground="#334155" BorderBrush="#CBD5E1" BorderThickness="1" FontWeight="SemiBold" Cursor="Hand"/>
+        </StackPanel>
+    </Grid>
+</Window>
