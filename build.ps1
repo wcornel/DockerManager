@@ -4,51 +4,65 @@
 #>
 
 param (
+    [switch]$Release,
     [string]$Version = "",
     [string]$Configuration = "Release",
     [string]$OutputDir = "publish",
     [string]$ReleasesDir = "Releases",
     [switch]$SkipTests,
-    [switch]$LocalOnly,
     [switch]$Publish,
     [string]$GitHubToken = ""
 )
 
 $ErrorActionPreference = "Stop"
 
-if ([string]::IsNullOrWhiteSpace($Version) -or $Version -eq "auto") {
-    $highestVersion = [version]"1.0.0"
-    $foundExisting = $false
+if ($Publish) {
+    $Release = $true
+}
 
-    if (Test-Path "$ReleasesDir\releases.win.json") {
-        try {
-            $json = Get-Content "$ReleasesDir\releases.win.json" -Raw | ConvertFrom-Json
-            if ($json.Assets) {
-                foreach ($asset in $json.Assets) {
-                    $vStr = "$($asset.Version)"
-                    if ($vStr -match '^\d+(\.\d+)+') {
-                        $parsed = [version]$matches[0]
-                        if ($parsed -ge $highestVersion) {
-                            $highestVersion = $parsed
-                            $foundExisting = $true
-                        }
+$highestVersion = [version]"1.0.0"
+$foundExisting = $false
+
+if (Test-Path "$ReleasesDir\releases.win.json") {
+    try {
+        $json = Get-Content "$ReleasesDir\releases.win.json" -Raw | ConvertFrom-Json
+        if ($json.Assets) {
+            foreach ($asset in $json.Assets) {
+                $vStr = "$($asset.Version)"
+                if ($vStr -match '^\d+(\.\d+)+') {
+                    $parsed = [version]$matches[0]
+                    if ($parsed -ge $highestVersion) {
+                        $highestVersion = $parsed
+                        $foundExisting = $true
                     }
                 }
             }
-        } catch { }
-    }
+        }
+    } catch { }
+}
 
-    if ($foundExisting) {
-        $buildPart = if ($highestVersion.Build -ge 0) { $highestVersion.Build + 1 } else { 1 }
-        $Version = "$($highestVersion.Major).$($highestVersion.Minor).$buildPart"
+if ([string]::IsNullOrWhiteSpace($Version) -or $Version -eq "auto") {
+    if ($Release) {
+        if ($foundExisting) {
+            $buildPart = if ($highestVersion.Build -ge 0) { $highestVersion.Build + 1 } else { 1 }
+            $Version = "$($highestVersion.Major).$($highestVersion.Minor).$buildPart"
+        } else {
+            $Version = "1.0.0"
+        }
     } else {
-        $Version = "1.0.0"
+        $Version = "$($highestVersion.Major).$($highestVersion.Minor).$([math]::Max(0, $highestVersion.Build))"
     }
 }
 
 Write-Host "=========================================" -ForegroundColor Cyan
-Write-Host "  DockerManager - Release & Velopack Build" -ForegroundColor Cyan
-Write-Host "  Versie: $Version ($Configuration)" -ForegroundColor Cyan
+if ($Release) {
+    Write-Host "  DockerManager - Officiële Release Build" -ForegroundColor Cyan
+    Write-Host "  Versie: $Version ($Configuration)" -ForegroundColor Cyan
+} else {
+    Write-Host "  DockerManager - Snelle Lokale Build" -ForegroundColor Cyan
+    Write-Host "  Versie: $Version ($Configuration)" -ForegroundColor Cyan
+    Write-Host "  (Alleen lokale .exe; gebruik -Release voor installer)" -ForegroundColor DarkGray
+}
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -106,7 +120,7 @@ if (Test-Path "profiles") {
 }
 
 # 5. Velopack
-if (-not $LocalOnly) {
+if ($Release) {
     Write-Host "[5/5] Velopack Setup & Update Pakket genereren (vpk pack)..." -ForegroundColor Yellow
     if (-not (Test-Path $ReleasesDir)) {
         New-Item -ItemType Directory -Path $ReleasesDir -Force | Out-Null
@@ -137,7 +151,7 @@ if (-not $LocalOnly) {
         }
     }
 } else {
-    Write-Host "[5/5] Velopack overgeslagen (-LocalOnly). Alleen lokale executable gegenereerd." -ForegroundColor Cyan
+    Write-Host "[5/5] Velopack overgeslagen (Lokale build). Gebruik '.\build.ps1 -Release' voor een officiële installer." -ForegroundColor Cyan
 }
 
 $SetupPath = Join-Path $OutputDir "DockerManager-Setup.exe"
@@ -146,12 +160,12 @@ $ExePath = Join-Path $OutputDir "DockerManager.App.exe"
 Write-Host ""
 Write-Host "=========================================" -ForegroundColor Green
 Write-Host "  Build Succesvol Voltooid!" -ForegroundColor Green
-if (Test-Path $SetupPath) {
+if ($Release -and (Test-Path $SetupPath)) {
     $SetupSizeMb = [math]::Round((Get-Item $SetupPath).Length / 1MB, 2)
-    Write-Host "  [INSTALLER] $SetupPath ($SetupSizeMb MB)  --> GEBRUIK DEZE" -ForegroundColor Green
+    Write-Host "  [INSTALLER] $SetupPath ($SetupSizeMb MB)" -ForegroundColor Green
 }
 if (Test-Path $ExePath) {
     $SizeMb = [math]::Round((Get-Item $ExePath).Length / 1MB, 2)
-    Write-Host "  [PORTABLE]  $ExePath ($SizeMb MB)" -ForegroundColor Gray
+    Write-Host "  [PORTABLE]  $ExePath ($SizeMb MB)  --> DIRECT UITVOERBAAR" -ForegroundColor Green
 }
 Write-Host "=========================================" -ForegroundColor Green
