@@ -1,0 +1,462 @@
+<Window x:Class="DockerManager.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:DockerManager.App.ViewModels"
+        xmlns:models="clr-namespace:DockerManager.App.Models"
+        xmlns:helpers="clr-namespace:DockerManager.App.Helpers"
+        mc:Ignorable="d"
+        Title="DockerManager — Profile &amp; Container Hub" Height="830" Width="1200"
+        MinHeight="650" MinWidth="980"
+        Icon="pack://application:,,,/DockerManager.App;component/app.ico"
+        WindowStartupLocation="CenterScreen"
+        Background="#F1F5F9" Foreground="#0F172A">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- 0: Windows Menu Bar -->
+            <RowDefinition Height="Auto"/> <!-- 1: Windows Toolbar (Profile selector + Action buttons) -->
+            <RowDefinition Height="Auto"/> <!-- 2: Docker Alert Banner (if disconnected) -->
+            <RowDefinition Height="Auto"/> <!-- 3: Profile Changed External Banner -->
+            <RowDefinition Height="*"/>    <!-- 4: Container Cards Grid -->
+            <RowDefinition Height="Auto"/> <!-- 5: Bottom Status Bar -->
+        </Grid.RowDefinitions>
+
+        <!-- 0: Standard Windows Menu Bar -->
+        <Menu Grid.Row="0" Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="0,0,0,1" Padding="4,2">
+            <MenuItem Header="{helpers:Loc Menu_File}">
+                <MenuItem Header="{helpers:Loc Menu_AddContainer}" Command="{Binding AddNewServiceCommand}"/>
+                <MenuItem Header="{helpers:Loc Menu_NewProfile}" Click="AddNewProfileMenu_Click"/>
+                <MenuItem Header="{helpers:Loc Menu_ImportCompose}" Click="ImportComposeMenu_Click"/>
+                <MenuItem Header="{helpers:Loc Menu_ExportCompose}" Click="ExportComposeMenu_Click"/>
+                <Separator Background="#E2E8F0"/>
+                <MenuItem Header="{helpers:Loc Menu_SyncProfiles}" Command="{Binding ReloadProfilesCommand}"/>
+                <Separator Background="#E2E8F0"/>
+                <MenuItem Header="{helpers:Loc Menu_BackupAll}" Command="{Binding BackupVolumesCommand}"/>
+                <MenuItem Header="{helpers:Loc Menu_RestoreBackup}" Command="{Binding RestoreBackupCommand}"/>
+                <Separator Background="#E2E8F0"/>
+                <MenuItem Header="{helpers:Loc Menu_Settings}" Command="{Binding OpenSettingsCommand}"/>
+                <MenuItem Header="{helpers:Loc Menu_Exit}" Click="ExitMenu_Click"/>
+            </MenuItem>
+            <MenuItem Header="{helpers:Loc Menu_Actions}">
+                <MenuItem Header="{helpers:Loc Menu_StartAll}" Command="{Binding StartAllCommand}" Foreground="#16A34A" FontWeight="SemiBold"/>
+                <MenuItem Header="{helpers:Loc Menu_StopAll}" Command="{Binding StopAllCommand}" Foreground="#DC2626" FontWeight="SemiBold"/>
+                <MenuItem Header="{helpers:Loc Menu_RestartAll}" Command="{Binding RestartAllCommand}"/>
+                <MenuItem Header="{helpers:Loc Menu_UpdateAll}" Command="{Binding UpdateAllCommand}" Foreground="#2563EB" FontWeight="SemiBold"/>
+                <Separator Background="#E2E8F0"/>
+                <MenuItem Header="{helpers:Loc Menu_CheckPorts}" Command="{Binding CheckPortConflictsCommand}"/>
+                <MenuItem Header="{helpers:Loc Menu_PruneDocker}" Command="{Binding PruneDockerCommand}"/>
+            </MenuItem>
+            <MenuItem Header="{helpers:Loc Menu_Dockerize}">
+                <MenuItem Header="{helpers:Loc Menu_PublishDotnet}" Click="PublishDotnetMenu_Click"/>
+                <MenuItem Header="{helpers:Loc Menu_PublishPython}" Click="PublishPythonMenu_Click"/>
+            </MenuItem>
+            <MenuItem Header="{helpers:Loc Menu_Help}">
+                <MenuItem Header="{helpers:Loc Menu_CheckUpdates}" Click="CheckForUpdatesMenu_Click"/>
+                <Separator Background="#E2E8F0"/>
+                <MenuItem Header="{helpers:Loc Menu_About}" Click="AboutMenu_Click"/>
+            </MenuItem>
+        </Menu>
+
+        <!-- 1: Clean Windows Action Toolbar (Onder het menu, links uitgelijnd met icoontjes) -->
+        <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="0,0,0,1" Padding="12,6">
+            <DockPanel LastChildFill="False">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" DockPanel.Dock="Left">
+                    <!-- Profile Selector -->
+                    <TextBlock Text="{helpers:Loc Toolbar_Profile}" FontSize="13" Foreground="#475569" FontWeight="Medium" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile, Mode=TwoWay}"
+                              DisplayMemberPath="Name"
+                              Width="150" Padding="8,4" Background="#F8FAFC" Foreground="#0F172A" BorderBrush="#CBD5E1"
+                              FontSize="13" FontWeight="SemiBold" Cursor="Hand" />
+
+                    <Border Background="#F1F5F9" CornerRadius="10" Padding="8,2" Margin="8,0,12,0" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding ContainersCountText}" FontSize="11" FontWeight="SemiBold" Foreground="#64748B"/>
+                    </Border>
+
+                    <!-- Divider -->
+                    <Border Width="1" Background="#CBD5E1" Height="22" Margin="0,0,10,0" VerticalAlignment="Center"/>
+
+                    <!-- Start Alles Button -->
+                    <Button Command="{Binding StartAllCommand}" 
+                            Width="36" Height="30" Margin="0,0,4,0" Padding="0"
+                            Background="#F0FDF4" Foreground="#16A34A" BorderBrush="#BBF7D0" BorderThickness="1"
+                            Cursor="Hand" ToolTip="{helpers:Loc Toolbar_StartAllTip}">
+                        <TextBlock Text="▶" FontSize="13" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+
+                    <!-- Stop Alles Button -->
+                    <Button Command="{Binding StopAllCommand}" 
+                            Width="36" Height="30" Margin="0,0,4,0" Padding="0"
+                            Background="#FEF2F2" Foreground="#DC2626" BorderBrush="#FECACA" BorderThickness="1"
+                            Cursor="Hand" ToolTip="{helpers:Loc Toolbar_StopAllTip}">
+                        <TextBlock Text="⏹" FontSize="13" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+
+                    <!-- Update Alles Button -->
+                    <Button Command="{Binding UpdateAllCommand}" 
+                            Width="36" Height="30" Margin="0,0,4,0" Padding="0"
+                            Background="#EFF6FF" Foreground="#2563EB" BorderBrush="#BFDBFE" BorderThickness="1"
+                            Cursor="Hand" ToolTip="{helpers:Loc Toolbar_UpdateAllTip}">
+                        <TextBlock Text="🚀" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+
+                    <!-- Herstart Alles Button -->
+                    <Button Command="{Binding RestartAllCommand}" 
+                            Width="36" Height="30" Margin="0,0,4,0" Padding="0"
+                            Background="#F8FAFC" Foreground="#334155" BorderBrush="#CBD5E1" BorderThickness="1"
+                            Cursor="Hand" ToolTip="{helpers:Loc Toolbar_RestartAllTip}">
+                        <TextBlock Text="🔄" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+
+                    <!-- Divider -->
+                    <Border Width="1" Background="#CBD5E1" Height="22" Margin="6,0,10,0" VerticalAlignment="Center"/>
+
+                    <!-- Container Toevoegen Button (Daarna geplaatst) -->
+                    <Button Command="{Binding AddNewServiceCommand}" 
+                            Width="36" Height="30" Margin="0,0,4,0" Padding="0"
+                            Background="#EEF2FF" Foreground="#4F46E5" BorderBrush="#C7D2FE" BorderThickness="1"
+                            Cursor="Hand" ToolTip="{helpers:Loc Toolbar_AddContainerTip}">
+                        <TextBlock Text="➕" FontSize="13" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+
+                    <!-- .NET Publiceren Button -->
+                    <Button Click="PublishDotnetMenu_Click" 
+                            Width="36" Height="30" Margin="0,0,4,0" Padding="0"
+                            Background="#FAF5FF" Foreground="#9333EA" BorderBrush="#E9D5FF" BorderThickness="1"
+                            Cursor="Hand" ToolTip="{helpers:Loc Toolbar_PublishTip}">
+                        <TextBlock Text="📦" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+
+                    <!-- Divider -->
+                    <Border Width="1" Background="#CBD5E1" Height="22" Margin="6,0,10,0" VerticalAlignment="Center"/>
+
+                    <!-- Poortconflicten Controleren -->
+                    <Button Command="{Binding CheckPortConflictsCommand}" 
+                            Width="36" Height="30" Margin="0,0,4,0" Padding="0"
+                            Background="#F8FAFC" Foreground="#0284C7" BorderBrush="#CBD5E1" BorderThickness="1"
+                            Cursor="Hand" ToolTip="{helpers:Loc Toolbar_CheckPortsTip}">
+                        <TextBlock Text="🔍" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+
+                    <!-- Back-up Maken -->
+                    <Button Command="{Binding BackupVolumesCommand}" 
+                            Width="36" Height="30" Margin="0,0,4,0" Padding="0"
+                            Background="#F8FAFC" Foreground="#D97706" BorderBrush="#CBD5E1" BorderThickness="1"
+                            Cursor="Hand" ToolTip="{helpers:Loc Toolbar_BackupTip}">
+                        <TextBlock Text="💾" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+
+                    <!-- Back-up Terugzetten -->
+                    <Button Command="{Binding RestoreBackupCommand}" 
+                            Width="36" Height="30" Margin="0,0,4,0" Padding="0"
+                            Background="#F8FAFC" Foreground="#D97706" BorderBrush="#CBD5E1" BorderThickness="1"
+                            Cursor="Hand" ToolTip="{helpers:Loc Toolbar_RestoreTip}">
+                        <TextBlock Text="📥" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+
+                    <!-- Instellingen -->
+                    <Button Command="{Binding OpenSettingsCommand}" 
+                            Width="36" Height="30" Margin="0,0,4,0" Padding="0"
+                            Background="#F8FAFC" Foreground="#334155" BorderBrush="#CBD5E1" BorderThickness="1"
+                            Cursor="Hand" ToolTip="{helpers:Loc Toolbar_SettingsTip}">
+                        <TextBlock Text="⚙️" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+                </StackPanel>
+
+                <!-- Search / Filter Box (Right aligned) -->
+                <Border DockPanel.Dock="Right" Background="#F8FAFC" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="6"
+                        Padding="8,2" Margin="10,0,0,0" VerticalAlignment="Center" Width="200">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="🔍" FontSize="11" Foreground="#94A3B8" VerticalAlignment="Center" Margin="2,0,6,0"/>
+                        <TextBox Grid.Column="1" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                 Background="Transparent" BorderThickness="0" Padding="0" FontSize="12" Foreground="#0F172A" VerticalAlignment="Center"
+                                 ToolTip="{helpers:Loc Toolbar_SearchTip}"/>
+                        <Button Grid.Column="2" Content="✕" Command="{Binding ClearSearchCommand}"
+                                Background="Transparent" BorderThickness="0" Padding="4,0" FontSize="10" Foreground="#94A3B8" Cursor="Hand"
+                                Visibility="{Binding SearchText, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
+                                ToolTip="{helpers:Loc Toolbar_ClearFilterTip}"/>
+                    </Grid>
+                </Border>
+            </DockPanel>
+        </Border>
+
+        <!-- 2: Docker Disconnected / Status Warning Banner -->
+        <Border Grid.Row="2" Background="#78350F" BorderBrush="#B45309" BorderThickness="0,0,0,1" Padding="16,10"
+                Visibility="{Binding IsDockerConnected, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,3">
+                        <TextBlock Text="⚠️" FontSize="15" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding DockerStatusText}" Foreground="#FEF3C7" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <TextBlock Text="{Binding DockerDiagnosisTip}" Foreground="#FDE68A" FontSize="11.5" Margin="23,0,0,0" TextWrapping="Wrap"
+                               Visibility="{Binding DockerDiagnosisTip, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="{helpers:Loc Docker_StartBtn}" Command="{Binding LaunchDockerDesktopCommand}"
+                            Background="#16A34A" Foreground="White" FontWeight="SemiBold" Padding="12,5" Margin="0,0,8,0" FontSize="12" Cursor="Hand"
+                            Visibility="{Binding IsDockerDesktopInstalled, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    <Button Content="{helpers:Loc Docker_ReconnectBtn}" Command="{Binding RetryDockerConnectionCommand}" 
+                            Background="#D97706" Foreground="White" Padding="12,5" Margin="0,0,8,0" FontSize="12" Cursor="Hand"/>
+                    <Button Content="{helpers:Loc Docker_SettingsBtn}" Command="{Binding OpenSettingsCommand}" 
+                            Background="#92400E" Foreground="White" Padding="12,5" FontSize="12" Cursor="Hand"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 3: Profile Modified External Notification Banner -->
+        <Border Grid.Row="3" Margin="24,8,24,6" Background="#FFFBEB" BorderBrush="#FDE68A" BorderThickness="1" CornerRadius="8" Padding="14,8"
+                Visibility="{Binding HasExternalProfileChanges, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="🔔" FontSize="15" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="{helpers:Loc Banner_ProfileModified}" 
+                               FontSize="12.5" FontWeight="SemiBold" Foreground="#92400E" VerticalAlignment="Center"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button Content="{helpers:Loc Banner_ReloadBtn}" Command="{Binding ReloadProfilesCommand}"
+                            Background="#D97706" Foreground="White" FontWeight="Bold" Padding="10,4" Margin="0,0,6,0" Cursor="Hand"/>
+                    <Button Content="✕" Command="{Binding DismissProfileChangesAlertCommand}"
+                            Background="Transparent" Foreground="#92400E" Padding="6,4" Cursor="Hand" ToolTip="{helpers:Loc Banner_DismissTip}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 4: Containers Grid / List -->
+        <ScrollViewer Grid.Row="4" Padding="16,8" VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding FilteredServiceCards}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <!-- Container Card with Uniform Fixed Dimensions (Equal Heights & Bottom Aligned Buttons) -->
+                        <Border Width="395" Height="285" Margin="8" Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="10" Padding="14,12">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/> <!-- Card Header -->
+                                    <RowDefinition Height="*"/>    <!-- Specs (Ports, Volumes, Clickable URL) - Fills space -->
+                                    <RowDefinition Height="Auto"/> <!-- Status & Progress Message -->
+                                    <RowDefinition Height="Auto"/> <!-- Action Buttons - Bottom Aligned -->
+                                </Grid.RowDefinitions>
+
+                                <!-- Card Header -->
+                                <Grid Grid.Row="0" Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="{Binding Service.DisplayName}" FontSize="15" FontWeight="Bold" Foreground="#0F172A" TextTrimming="CharacterEllipsis"/>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{helpers:Loc Card_Name, StringFormat='{}{0}: '}" FontSize="11.5" Foreground="#64748B"/>
+                                            <TextBlock Text="{Binding ContainerName}" FontSize="11.5" Foreground="#64748B"/>
+                                        </StackPanel>
+                                    </StackPanel>
+
+                                    <!-- Status Badge Pill + Stats + Terminal + Edit Button -->
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                                        <!-- Live Resource Usage Pill (CPU/RAM) -->
+                                        <Border Background="#E0F2FE" CornerRadius="8" Padding="6,3" Margin="0,0,6,0"
+                                                Visibility="{Binding HasResourceStats, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                ToolTip="{helpers:Loc Card_ResourceStatsTip}">
+                                            <TextBlock Text="{Binding ResourceUsageText}" FontSize="10" FontWeight="SemiBold" Foreground="#0369A1"/>
+                                        </Border>
+
+                                        <!-- Terminal / CLI Button -->
+                                        <Button Content="💻" Command="{Binding OpenTerminalCommand}" ToolTip="{helpers:Loc Card_TerminalTip}"
+                                                Background="Transparent" BorderThickness="0" Padding="4,2" Margin="0,0,4,0" Cursor="Hand"
+                                                Visibility="{Binding IsRunning, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+
+                                        <!-- Edit Button -->
+                                        <Button Content="✏️" Command="{Binding EditCommand}" ToolTip="{helpers:Loc Card_EditTip}"
+                                                Background="Transparent" BorderThickness="0" Padding="4,2" Margin="0,0,6,0" Cursor="Hand"/>
+
+                                        <!-- State Badge -->
+                                        <Border Background="{Binding RuntimeInfo.State, Converter={StaticResource StateToBrushConverter}}"
+                                                CornerRadius="10" Padding="9,3">
+                                            <TextBlock Text="{Binding StatusText}" 
+                                                       FontSize="11" FontWeight="Bold" Foreground="White"/>
+                                        </Border>
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- Specs Info with Clickable Web URL -->
+                                <Border Grid.Row="1" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,8">
+                                    <StackPanel VerticalAlignment="Top">
+                                        <!-- Clickable URL (if container has web port) -->
+                                        <Button Command="{Binding OpenInBrowserCommand}" 
+                                                Background="Transparent" BorderThickness="0" Padding="0" Margin="0,0,0,4"
+                                                HorizontalAlignment="Left" Cursor="Hand"
+                                                Visibility="{Binding HasWebPort, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                ToolTip="{Binding WebUrl, StringFormat='Klik om {0} direct in browser te openen'}">
+                                            <DockPanel>
+                                                <TextBlock Text="🌐 Link:" FontSize="11" FontWeight="SemiBold" Foreground="#0284C7" Width="55"/>
+                                                <TextBlock Text="{Binding WebUrl}" FontSize="11" FontWeight="Bold" Foreground="#0284C7" TextDecorations="Underline"/>
+                                                <TextBlock Text=" ↗" FontSize="11" FontWeight="Bold" Foreground="#0284C7"/>
+                                            </DockPanel>
+                                        </Button>
+
+                                        <!-- Clickable Cloudflare HTTPS URL -->
+                                        <Button Command="{Binding OpenCloudflareUrlCommand}" 
+                                                Background="Transparent" BorderThickness="0" Padding="0" Margin="0,0,0,4"
+                                                HorizontalAlignment="Left" Cursor="Hand"
+                                                Visibility="{Binding HasCloudflareUrl, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                ToolTip="{Binding CloudflareUrl, StringFormat='Klik om publieke HTTPS Cloudflare URL {0} direct te openen'}">
+                                            <DockPanel>
+                                                <TextBlock Text="☁️ Public:" FontSize="11" FontWeight="SemiBold" Foreground="#EA580C" Width="55"/>
+                                                <TextBlock Text="{Binding CloudflareUrl}" FontSize="11" FontWeight="Bold" Foreground="#EA580C" TextDecorations="Underline"/>
+                                                <TextBlock Text=" ↗" FontSize="11" FontWeight="Bold" Foreground="#EA580C"/>
+                                            </DockPanel>
+                                        </Button>
+
+                                        <!-- Image -->
+                                        <DockPanel Margin="0,0,0,3">
+                                            <TextBlock Text="Image:" FontSize="11" Foreground="#64748B" Width="55"/>
+                                            <TextBlock Text="{Binding Service.Image}" FontSize="11" Foreground="#334155" TextTrimming="CharacterEllipsis"/>
+                                        </DockPanel>
+
+                                        <!-- Ports -->
+                                        <DockPanel Margin="0,0,0,3">
+                                            <TextBlock Text="{helpers:Loc Card_Ports, StringFormat='{}{0}:'}" FontSize="11" Foreground="#64748B" Width="55"/>
+                                            <TextBlock Text="{Binding PortsSummary}" FontSize="11" Foreground="#1E293B" FontWeight="Medium" TextTrimming="CharacterEllipsis"/>
+                                        </DockPanel>
+
+                                        <!-- Volumes -->
+                                        <DockPanel Margin="0,0,0,3">
+                                            <TextBlock Text="{helpers:Loc Card_Volumes, StringFormat='{}{0}:'}" FontSize="11" Foreground="#64748B" Width="55"/>
+                                            <TextBlock Text="{Binding VolumesSummary}" FontSize="11" Foreground="#334155" TextTrimming="CharacterEllipsis"/>
+                                        </DockPanel>
+
+                                        <!-- Last Updated Info -->
+                                        <DockPanel Margin="0,1,0,0">
+                                            <TextBlock Text="{helpers:Loc Card_UpdateLabel, StringFormat='{}{0}:'}" FontSize="11" Foreground="#64748B" Width="55"/>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding LastUpdatedText}" FontSize="11" Foreground="#64748B"/>
+                                                <Border Background="#D97706" CornerRadius="4" Padding="5,1" Margin="8,0,0,0"
+                                                        Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                    <TextBlock Text="{helpers:Loc Card_UpdateAvailable}" FontSize="9.5" FontWeight="Bold" Foreground="White"/>
+                                                </Border>
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Status / Progress Message with temporary highlight effect -->
+                                <Border Grid.Row="2" Height="20" Margin="0,0,0,6" VerticalAlignment="Bottom"
+                                        Background="{Binding UpdateFeedbackBackground}" 
+                                        CornerRadius="4" Padding="6,2">
+                                    <TextBlock Text="{Binding StatusMessage}" FontSize="11" FontWeight="SemiBold"
+                                               Foreground="{Binding UpdateFeedbackForeground}" 
+                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                               ToolTip="{Binding StatusMessage}"/>
+                                </Border>
+
+                                <!-- Action Buttons Toolbar (Equal Widths & Balanced) -->
+                                <Grid Grid.Row="3" VerticalAlignment="Bottom">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Start / Stop Button -->
+                                    <Button Grid.Column="0" Margin="0,0,3,0" Padding="4,8"
+                                            Command="{Binding StartCommand}"
+                                            Visibility="{Binding IsRunning, Converter={StaticResource InverseBooleanToVisibilityConverter}}"
+                                            Background="#16A34A" Foreground="White" BorderThickness="0" ToolTip="{helpers:Loc Card_StartTip}">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <TextBlock Text="▶" Margin="0,0,4,0"/>
+                                            <TextBlock Text="{helpers:Loc Card_Start}" FontWeight="Bold" FontSize="11.5"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Grid.Column="0" Margin="0,0,3,0" Padding="4,8"
+                                            Command="{Binding StopCommand}"
+                                            Visibility="{Binding IsRunning, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                            Background="#DC2626" Foreground="White" BorderThickness="0" ToolTip="{helpers:Loc Card_StopTip}">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <TextBlock Text="⏹" Margin="0,0,4,0"/>
+                                            <TextBlock Text="{helpers:Loc Card_Stop}" FontWeight="Bold" FontSize="11.5"/>
+                                        </StackPanel>
+                                    </Button>
+
+                                    <!-- Restart Button -->
+                                    <Button Grid.Column="1" Margin="2,0,3,0" Padding="4,8"
+                                            Command="{Binding RestartCommand}"
+                                            Background="#F1F5F9" Foreground="#1E293B" BorderBrush="#CBD5E1" BorderThickness="1" ToolTip="{helpers:Loc Card_RestartTip}">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <TextBlock Text="🔄" Margin="0,0,4,0"/>
+                                            <TextBlock Text="{helpers:Loc Card_Restart}" FontWeight="SemiBold" FontSize="11.5"/>
+                                        </StackPanel>
+                                    </Button>
+
+                                    <!-- Safe Update Button -->
+                                    <Button Grid.Column="2" Margin="2,0,3,0" Padding="4,8"
+                                            Command="{Binding SafeUpdateCommand}"
+                                            Background="#2563EB" Foreground="White" BorderThickness="0" ToolTip="{helpers:Loc Card_UpdateTip}">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <TextBlock Text="🚀" Margin="0,0,4,0"/>
+                                            <TextBlock Text="{helpers:Loc Card_Update}" FontWeight="SemiBold" FontSize="11.5"/>
+                                        </StackPanel>
+                                    </Button>
+
+                                    <!-- Logs Button -->
+                                    <Button Grid.Column="3" Margin="2,0,3,0" Padding="4,8"
+                                            Command="{Binding OpenLogsCommand}"
+                                            Background="#F1F5F9" Foreground="#1E293B" BorderBrush="#CBD5E1" BorderThickness="1" ToolTip="{helpers:Loc Card_LogsTip}">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <TextBlock Text="📜" Margin="0,0,4,0"/>
+                                            <TextBlock Text="{helpers:Loc Card_Logs}" FontWeight="SemiBold" FontSize="11.5"/>
+                                        </StackPanel>
+                                    </Button>
+
+                                    <!-- Delete from profile Button -->
+                                    <Button Grid.Column="4" Margin="2,0,0,0" Padding="8,8"
+                                            Command="{Binding DeleteFromProfileCommand}"
+                                            Background="#FEF2F2" Foreground="#DC2626" BorderBrush="#FECACA" BorderThickness="1"
+                                            ToolTip="{helpers:Loc Card_DeleteTip}">
+                                        <TextBlock Text="🗑️" FontSize="11"/>
+                                    </Button>
+                                </Grid>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- Bottom Status Bar -->
+        <Border Grid.Row="5" Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0" Padding="16,8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <Ellipse Width="8" Height="8" Margin="0,0,8,0"
+                             Fill="{Binding IsDockerConnected, Converter={StaticResource StateToBrushConverter}, FallbackValue='#16A34A'}"/>
+                    <TextBlock Text="{Binding DockerStatusText}" FontSize="12" Foreground="#334155" VerticalAlignment="Center"/>
+                </StackPanel>
+                <TextBlock Grid.Column="1" Text="{Binding SyncStatusText}" FontSize="12" Foreground="#64748B" VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

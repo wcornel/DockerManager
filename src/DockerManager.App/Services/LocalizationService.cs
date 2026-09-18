@@ -1,0 +1,725 @@
+using System.ComponentModel;
+using System.Globalization;
+
+namespace DockerManager.App.Services;
+
+public interface ILocalizationService : INotifyPropertyChanged
+{
+    string CurrentLanguage { get; }
+    string this[string key] { get; }
+    string Get(string key, params object[] args);
+    void SetLanguage(string langCode);
+    event Action? LanguageChanged;
+}
+
+public class LocalizationService : ILocalizationService
+{
+    private static LocalizationService? _instance;
+    public static LocalizationService Instance => _instance ??= new LocalizationService();
+
+    private string _currentLanguage = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.ToLowerInvariant() == "nl" ? "nl" : "en";
+    public string CurrentLanguage => _currentLanguage;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    public event Action? LanguageChanged;
+
+    public string this[string key] => Get(key);
+
+    private readonly Dictionary<string, Dictionary<string, string>> _translations = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // -------------------------
+        // DUTCH (NL)
+        // -------------------------
+        ["nl"] = new(StringComparer.OrdinalIgnoreCase)
+        {
+            // Menus
+            ["Menu_File"] = "📁 Bestand",
+            ["Menu_AddContainer"] = "➕ Container toevoegen...",
+            ["Menu_NewProfile"] = "📄 Profiel toevoegen...",
+            ["Menu_ImportCompose"] = "📥 Docker Compose Importeren (YAML)...",
+            ["Menu_ExportCompose"] = "💾 Docker Compose Exporteren (YAML)...",
+            ["Menu_SyncProfiles"] = "🔄 Profielen herladen & synchroniseren",
+            ["Export_Success"] = "Profiel succesvol geëxporteerd naar docker-compose.yml!",
+            ["Export_Empty"] = "Het actieve profiel bevat geen containers om te exporteren.",
+            ["Menu_ImportProfile"] = "📥 Profiel importeren (JSON)...",
+            ["Menu_ExportProfile"] = "💾 Profiel exporteren (JSON)...",
+            ["Menu_BackupAll"] = "📦 Alle volumes back-uppen naar ZIP...",
+            ["Menu_RestoreBackup"] = "📥 Volume back-up terugzetten...",
+            ["Menu_Settings"] = "⚙️ Instellingen...",
+            ["Menu_Exit"] = "🚪 Afsluiten",
+
+            ["Menu_Actions"] = "⚡ Acties",
+            ["Menu_StartAll"] = "▶ Alle containers starten",
+            ["Menu_StopAll"] = "⏹ Alle containers stoppen",
+            ["Menu_RestartAll"] = "🔄 Alle containers herstarten",
+            ["Menu_UpdateAll"] = "🚀 Alle containers updaten (Pull & Restart)",
+            ["Menu_CheckPorts"] = "🔍 Poortconflicten controleren...",
+            ["Menu_PruneDocker"] = "🧹 Ongebruikte Docker data opschonen (Prune)...",
+
+            ["Menu_Dockerize"] = "🚀 Dockerize App",
+            ["Menu_PublishDotnet"] = "🔷 .NET App omzetten naar Docker...",
+            ["Menu_PublishPython"] = "🐍 Python App omzetten naar Docker...",
+
+            ["Menu_Help"] = "❓ Help",
+            ["Menu_CheckUpdates"] = "🔄 Zoeken naar Updates...",
+            ["Menu_About"] = "ℹ️ Over DockerManager",
+
+            // Toolbar
+            ["Toolbar_Profile"] = "Profiel:",
+            ["Toolbar_ContainersCount"] = "{0} containers",
+            ["Toolbar_StartAllTip"] = "▶ Start alle containers in dit profiel",
+            ["Toolbar_StopAllTip"] = "⏹ Stop alle actieve containers in dit profiel",
+            ["Toolbar_UpdateAllTip"] = "🚀 Update alle containers naar de nieuwste image",
+            ["Toolbar_RestartAllTip"] = "🔄 Herstart alle containers in dit profiel",
+            ["Toolbar_AddContainerTip"] = "➕ Nieuwe container toevoegen aan dit profiel",
+            ["Toolbar_PublishTip"] = "📦 .NET / Python app dockerizen en publiceren",
+            ["Toolbar_CheckPortsTip"] = "🔍 Controleer op poortconflicten met Windows of andere containers",
+            ["Toolbar_BackupTip"] = "💾 Alle volumes van dit profiel back-uppen naar ZIP",
+            ["Toolbar_RestoreTip"] = "📥 Herstel volumes vanuit een eerder gemaakte ZIP back-up",
+            ["Toolbar_SettingsTip"] = "⚙️ Instellingen & GitHub Token",
+
+            // Docker Status & Diagnosis
+            ["Docker_Connected"] = "Verbonden: {0}",
+            ["Docker_NotConnected"] = "Docker niet bereikbaar ({0})",
+            ["Docker_Checking"] = "Docker controleren...",
+            ["Docker_StartBtn"] = "🚀 Docker Starten",
+            ["Docker_ReconnectBtn"] = "🔄 Opnieuw Verbinden",
+            ["Docker_SettingsBtn"] = "⚙️ Instellingen",
+            ["Docker_Starting"] = "Docker Desktop wordt opgestart. Even geduld...",
+            ["Docker_StartFailed"] = "Kon Docker Desktop niet automatisch starten. Start de applicatie handmatig via het Windows Startmenu.",
+            ["Docker_Diag_NotAutoStart"] = "Docker Desktop start momenteel NIET automatisch op bij het inloggen op Windows.",
+            ["Docker_Diag_NotAutoStartTip"] = "Tip: Open Docker Desktop ➔ Instellingen (tandwiel) ➔ vink 'Start Docker Desktop when you sign in' aan.",
+            ["Docker_Diag_ServiceManual"] = "De Docker Windows Service staat ingesteld op 'Handmatig' i.p.v. 'Automatisch'.",
+            ["Docker_Diag_ServiceManualTip"] = "Hierdoor start de service niet direct bij de Windows boot. Pas dit aan via Windows Services (services.msc ➔ com.docker.service ➔ Automatisch).",
+            ["Docker_Diag_StartingUp"] = "Docker is momenteel niet actief of nog bezig met opstarten.",
+            ["Docker_Diag_StartingUpTip"] = "Let op: Op Windows start Docker Desktop pas nadat je bent ingelogd (niet al op het Windows vergrendelscherm).",
+            ["Docker_Diag_UnreachableTip"] = "Controleer of Docker Desktop geïnstalleerd en gestart is, of configureer het IP-adres via Instellingen.",
+
+            // General & Dialogs
+            ["General_Close"] = "Sluiten",
+            ["General_Cancel"] = "Annuleren",
+            ["General_Save"] = "Opslaan",
+            ["General_Delete"] = "Verwijderen",
+            ["General_Edit"] = "Bewerken",
+            ["General_Apply"] = "Toepassen",
+            ["General_OK"] = "OK",
+            ["General_Yes"] = "Ja",
+            ["General_No"] = "Nee",
+            ["General_Loading"] = "Laden...",
+            ["General_Ready"] = "Gereed",
+
+            // Settings
+            ["Settings_Title"] = "Instellingen",
+            ["Settings_Language"] = "Taal / Language:",
+            ["Settings_DockerConnection"] = "Docker Daemon Verbinding",
+            ["Settings_HostType"] = "Verbindingstype:",
+            ["Settings_PipeName"] = "Named Pipe Pad:",
+            ["Settings_TcpUrl"] = "TCP Daemon URL:",
+            ["Settings_GitHubIntegration"] = "GitHub & Container Registry Integratie",
+            ["Settings_Registries"] = "🔐 Container Registries (GHCR, Azure ACR, Docker Hub, etc.)",
+            ["Settings_AddRegistry"] = "➕ Registry Toevoegen",
+            ["Settings_RegistryServer"] = "Registry Server URL (bijv. ghcr.io, mijn.azurecr.io):",
+            ["Settings_RegistryUsername"] = "Gebruikersnaam / Client ID:",
+            ["Settings_RegistryPassword"] = "Token / Wachtwoord / Secret:",
+            ["Wizard_TargetRegistry"] = "Doel Container Registry:",
+            ["Wizard_TargetRegistry_GHCR"] = "🐙 GitHub Container Registry (ghcr.io)",
+            ["Wizard_TargetRegistry_DockerHub"] = "🐳 Docker Hub (docker.io)",
+            ["Wizard_TargetRegistry_Azure"] = "🔷 Azure Container Registry (ACR)",
+            ["Wizard_TargetRegistry_GitLab"] = "🦊 GitLab Container Registry (registry.gitlab.com)",
+            ["Settings_RepoOwner"] = "GitHub Gebruikersnaam / Organisatie:",
+            ["Settings_RepoName"] = "DockerManager Repository:",
+            ["Settings_DeployRepo"] = "Centrale Deploy Repository (Containers):",
+            ["Settings_Branch"] = "Git Branch:",
+            ["Settings_ProfilesFolder"] = "Profielen Map in GitHub Repo:",
+            ["Settings_LocalProfilesFolder"] = "Lokale Profielen Map (Optioneel):",
+            ["Settings_General"] = "Algemene Opties",
+            ["Settings_AutoStop"] = "Containers van vorig profiel stoppen bij wisselen",
+            ["Settings_AutoUpdates"] = "Automatisch controleren op updates bij starten",
+
+            // Container Card & Status
+            ["Card_Name"] = "Naam",
+            ["Card_Start"] = "Start",
+            ["Card_Stop"] = "Stop",
+            ["Card_Restart"] = "Herstart",
+            ["Card_Update"] = "Update",
+            ["Card_UpdateLabel"] = "Update",
+            ["Card_UpdateAvailable"] = "Update Beschikbaar! 🚀",
+            ["Card_Logs"] = "Logs",
+            ["Card_Edit"] = "Aanpassen",
+            ["Card_Delete"] = "Verwijderen",
+            ["Card_Ports"] = "Poorten",
+            ["Card_Volumes"] = "Volumes",
+            ["Card_Env"] = "Omgeving",
+            ["Card_NoPorts"] = "Geen poorten",
+            ["Card_NoVolumes"] = "Geen volumes",
+            ["Card_NotYetUpdated"] = "Nog niet bijgewerkt",
+            ["Time_Today"] = "Vandaag",
+            ["Time_Yesterday"] = "Gisteren",
+            ["Card_ResourceStatsTip"] = "Actueel live resourcegebruik van deze container",
+            ["Card_TerminalTip"] = "Open interactieve terminal / shell in container",
+            ["Card_EditTip"] = "Container configureren/bewerken",
+            ["Card_StartTip"] = "Start container",
+            ["Card_StopTip"] = "Stop container",
+            ["Card_RestartTip"] = "Herstart container met actuele configuratie",
+            ["Card_UpdateTip"] = "Pull nieuwste image & herstart met behoud van volumes",
+            ["Card_LogsTip"] = "Bekijk realtime live logs",
+            ["Card_DeleteTip"] = "Verwijder container uit dit profiel",
+            ["Card_Status_Running"] = "Actief",
+            ["Card_Status_Stopped"] = "Gestopt",
+            ["Card_Status_Created"] = "Aangemaakt",
+            ["Card_Status_Paused"] = "Gepauzeerd",
+            ["Card_Status_Restarting"] = "Herstarten...",
+            ["Card_Status_Updating"] = "Updaten...",
+            ["Card_Status_NotStarted"] = "Niet gestart",
+            ["Card_Status_Dead"] = "Dead",
+            ["Card_Status_Error"] = "Fout",
+            ["Card_Status_Unknown"] = "Onbekend",
+
+            // Status Bar & Toolbar
+            ["Docker_Active"] = "Docker is actief ({0})",
+            ["Status_LastSync"] = "Laatste sync: {0}",
+            ["Toolbar_SearchTip"] = "Zoeken op containernaam, image of poort...",
+            ["Toolbar_ClearFilterTip"] = "Filter wissen",
+            ["Banner_ProfileModified"] = "Het profielbestand is gewijzigd op schijf of GitHub! Klik op herladen om direct toe te passen.",
+            ["Banner_ReloadBtn"] = "🔄 Nu Herladen & Toepassen",
+            ["Banner_DismissTip"] = "Melding sluiten",
+
+            // System Tray & Minimize
+            ["Tray_MinimizedTip"] = "Geminimaliseerd naar het systeemvak. Containers blijven doordraaien!",
+            ["Tray_Open"] = "📂 DockerManager Openen",
+            ["Tray_StartAll"] = "▶ Start Alles",
+            ["Tray_StopAll"] = "⏹ Stop Alles",
+            ["Tray_UpdateAll"] = "🚀 Update Alles",
+            ["Tray_BackupVolumes"] = "💾 Back-up Volumes",
+            ["Tray_CheckPorts"] = "🔍 Poortconflicten Controleren",
+            ["Tray_Exit"] = "❌ Afsluiten",
+
+            // Port Conflict Dialog
+            ["Ports_Title"] = "🔍 Poortconflicten & Status Monitor",
+            ["Ports_Subtitle"] = "Overzicht van actieve poorten in Docker en lokale Windows host services",
+            ["Ports_NoConflicts"] = "🎉 Geen poortconflicten gedetecteerd! Alle containerpoorten zijn vrij.",
+            ["Ports_ConflictsDetected"] = "⚠️ Let op: Er zijn poortconflicten gevonden!",
+            ["Ports_ContainerName"] = "Container",
+            ["Ports_HostPort"] = "Host Poort",
+            ["Ports_ContainerPort"] = "Container Poort",
+            ["Ports_Protocol"] = "Protocol",
+            ["Ports_Status"] = "Status",
+            ["Ports_Process"] = "Bezet door Proces",
+            ["Ports_ChangePort"] = "Poort Aanpassen",
+            ["Ports_Refresh"] = "🔄 Opnieuw Scannen",
+
+            // Backup & Restore
+            ["Backup_Title"] = "💾 Volume Back-up Maken",
+            ["Backup_Success"] = "Back-up succesvol opgeslagen naar:\n{0}",
+            ["Backup_Failed"] = "Back-up mislukt: {0}",
+            ["Restore_Title"] = "📥 Volume Back-up Terugzetten",
+            ["Restore_Success"] = "Back-up succesvol hersteld!",
+            ["Restore_Failed"] = "Herstellen van back-up mislukt: {0}",
+
+            // Add Profile Dialog
+            ["AddProfile_Title"] = "Nieuw Profiel Aanmaken",
+            ["AddProfile_Header"] = "Nieuw Profiel Aanmaken",
+            ["AddProfile_Subheader"] = "Maakt een nieuw containerprofiel (stack) aan op schijf.",
+            ["AddProfile_ExplainerTitle"] = "💡 Wat is een profiel?",
+            ["AddProfile_ExplainerBody"] = "Een profiel bundelt meerdere containers die samen één stack of applicatie vormen. Alle containers binnen hetzelfde profiel worden automatisch in hetzelfde Docker-netwerk geplaatst, waardoor ze elkaar direct via hun containernaam kunnen bereiken (bijv. webapp naar database).",
+            ["AddProfile_NameLabel"] = "Profielnaam (bijv. WebApplicatie, Productie, Thuis):",
+            ["AddProfile_DescLabel"] = "Beschrijving (optioneel):",
+            ["AddProfile_CreateBtn"] = "➕ Profiel Aanmaken",
+
+            // Edit / Add Service Dialog
+            ["EditService_Title"] = "Container Bewerken",
+            ["EditService_Header"] = "📦 Container Eigenschappen",
+            ["EditService_Subheader"] = "Pas de container image, poorten, volumes en omgevingsvariabelen aan.",
+            ["EditService_NetworkTip"] = "💡 Containers binnen hetzelfde profiel delen automatisch één Docker-netwerk en kunnen elkaar direct via de containernaam bereiken.",
+            ["EditService_General"] = "Algemeen",
+            ["EditService_DisplayName"] = "Weergavenaam:",
+            ["EditService_ContainerName"] = "Container Naam:",
+            ["EditService_ImageLabel"] = "Docker Image (bijv. nginx:alpine of ghcr.io/username/app:latest):",
+            ["EditService_DownloadInspect"] = "Image downloaden en configureren",
+            ["EditService_PrivatePackage"] = "🔒 Private Package / Authenticatie Vereist",
+            ["EditService_PrivatePackageTip"] = "(gebruikt je opgeslagen GitHub Token voor ghcr.io)",
+            ["EditService_InspectToolTip"] = "Downloadt de image en leest automatisch alle poorten, werkmap en omgevingsvariabelen uit",
+            ["EditService_Description"] = "Beschrijving (optioneel):",
+            ["EditService_WorkingDir"] = "Werkmap (Working Directory, bijv. /app):",
+            ["EditService_WorkingDirTip"] = "Laat leeg voor standaard WORKDIR van de container image",
+            ["EditService_StartCommand"] = "Start Commando (bijv. python manage.py runserver ...):",
+            ["EditService_StartCommandTip"] = "Laat leeg voor standaard CMD van de container image",
+            ["EditService_RestartPolicy"] = "Restart Policy:",
+            ["EditService_AutoStart"] = "Automatisch starten bij openen",
+            ["EditService_PortsHeader"] = "Poort Mappings (Host → Container)",
+            ["EditService_AddPort"] = "+ Poort Toevoegen",
+            ["EditService_VolumesHeader"] = "Volumes / Data Opslag",
+            ["EditService_AddVolume"] = "+ Volume Toevoegen",
+            ["EditService_EnvHeader"] = "Omgevingsvariabelen (Environment)",
+            ["EditService_AddEnv"] = "+ Variabele Toevoegen",
+            ["EditService_CloudflareHeader"] = "☁️ Koppel aan Cloudflare Tunnel (Publieke HTTPS Toegang)",
+            ["EditService_CloudflarePort"] = "Poort:",
+            ["EditService_CloudflareTip"] = "🔒 Verkeer wordt via Cloudflare HTTPS doorgestuurd naar jouw container. Geschikt voor webhooks en externe toegang.",
+
+            // Log Viewer Dialog
+            ["LogViewer_Header"] = "📜 Live Container Logs",
+            ["LogViewer_Streaming"] = "Streaming: {0}",
+            ["LogViewer_Copy"] = "📋 Kopiëren",
+            ["LogViewer_Clear"] = "🧹 Wissen",
+            ["LogViewer_Stop"] = "⏹ Stoppen",
+            ["LogViewer_AutoScroll"] = "Automatisch naar beneden scrollen",
+
+            // Profile Switch Dialog
+            ["ProfileSwitch_Title"] = "Profiel Wisselen",
+            ["ProfileSwitch_Tip"] = "💡 Standaard blijven containers doordraaien zodat services niet worden onderbroken. Als er een poortconflict is, kun je ze alsnog stoppen.",
+            ["ProfileSwitch_StopAll"] = "⏹ Alles Stoppen",
+            ["ProfileSwitch_KeepRunning"] = "▶ Laten Doordraaien (Standaard)",
+
+            // Import Compose Dialog
+            ["ImportCompose_Title"] = "📥 Docker Compose Importeren — DockerManager",
+            ["ImportCompose_Header"] = "📥 Docker Compose Importeren",
+            ["ImportCompose_Subheader"] = "Kies een docker-compose.yml bestand of plak direct YAML om containers te importeren.",
+            ["ImportCompose_Step1"] = "📄 Stap 1: YAML Bestand of Inhoud",
+            ["ImportCompose_Browse"] = "📂 Bestand Kiezen...",
+            ["ImportCompose_PasteTip"] = "Of plak de docker-compose YAML inhoud hier:",
+            ["ImportCompose_Analyze"] = "🔍 YAML Analyseren",
+            ["ImportCompose_Step2"] = "🎯 Stap 2: Bestemming van de Geïmporteerde Containers",
+            ["ImportCompose_TargetActive"] = "Toevoegen aan actief profiel: ",
+            ["ImportCompose_Recommended"] = " (Aanbevolen)",
+            ["ImportCompose_TargetNew"] = "Nieuw profiel aanmaken",
+            ["ImportCompose_ProfileName"] = "Profielnaam:",
+            ["ImportCompose_Step3"] = "👁️ Stap 3: Gevonden Containers in YAML",
+            ["ImportCompose_PortsCount"] = "{0} poort-koppeling(en)",
+            ["ImportCompose_VolumesCount"] = "{0} volume-koppeling(en)",
+            ["ImportCompose_ImportBtn"] = "📥 Importeren / Toevoegen",
+
+            // GitHub Login Dialog
+            ["GitHub_LoggedIn"] = "Ingelogd ✅",
+            ["GitHub_SignIn"] = "Inloggen met GitHub",
+            ["GitHubLogin_Title"] = "GitHub Account Koppelen",
+            ["GitHubLogin_Subheader"] = "Voor toegang tot private packages (ghcr.io) en repository profielen",
+            ["GitHubLogin_Step1"] = "Stap 1: Open GitHub (permissies staan direct aangevinkt):",
+            ["GitHubLogin_GenerateBtn"] = "🌐 1. Genereer Token op GitHub (opent browser)",
+            ["GitHubLogin_Step2"] = "Stap 2: Plak het gegenereerde token hieronder:",
+            ["GitHubLogin_PasteBtn"] = "📋 Plakken",
+            ["GitHubLogin_VerifyBtn"] = "🔑 2. Verifieer & Inloggen",
+            ["GitHubLogin_DpapiTip"] = "🔒 Token wordt lokaal versleuteld met Windows DPAPI",
+
+            // Settings Dialog Sections & Labels
+            ["Settings_Subheader"] = "Beheer de verbinding met Docker, container registries en applicatievoorkeuren.",
+            ["Settings_HostDescription"] = "Kies of Docker lokaal op Windows draait of op een externe server/test-pc over het netwerk.",
+            ["Settings_HostLocal"] = "Lokaal (Windows Named Pipe)",
+            ["Settings_HostTcp"] = "Netwerk / Test PC (TCP Endpoint)",
+            ["Settings_TestDocker"] = "Test Docker Verbinding",
+            ["Settings_RegistriesDpapi"] = "🔒 Versleuteld via Windows DPAPI",
+            ["Settings_RegistriesDesc"] = "Beheer authenticatie voor het downloaden (pull) en uploaden (push) van container images naar registries zoals ghcr.io, Docker Hub of Azure ACR.",
+            ["Settings_AddExtraRegistry"] = "➕ Extra Registry Toevoegen (Azure ACR, GitLab, Docker Hub, Harbor):",
+            ["Settings_AddBtn"] = "Toevoegen",
+            ["Settings_AddRegistryHelp"] = "Voer Server URL, Gebruikersnaam en Token in en klik op 'Toevoegen'.",
+            ["Settings_CloudflareHeader"] = "☁️ Cloudflare Tunnel (Publieke HTTPS Toegang & Webhooks)",
+            ["Settings_CloudflareDesc"] = "Koppel jouw Cloudflare Zero Trust tunnel om bij het dockerizen automatisch publieke HTTPS subdomeinen (met gratis SSL) aan te maken voor Microsoft Graph callbacks en webhooks.",
+            ["Settings_ActiveTunnel"] = "Actieve Tunnel:",
+            ["Settings_FetchTunnels"] = "🔄 Tunnels Ophalen",
+            ["Settings_NewTunnel"] = "➕ Nieuwe Tunnel",
+            ["Settings_CreateTunnelHeader"] = "Nieuwe Cloudflare Tunnel Aanmaken:",
+            ["Settings_CreateInCloudflare"] = "Aanmaken in Cloudflare",
+            ["Settings_MainDomain"] = "Hoofddomein (Zone):",
+            ["Settings_TestCloudflare"] = "🔍 Test Verbinding & Valideer Tunnel",
+            ["Settings_AppPreferences"] = "🎛️ Applicatie Voorkeuren",
+            ["Settings_AutoCheckProfiles"] = "Automatisch controleren op profielupdates bij opstarten",
+            ["Settings_AutoCheckImages"] = "Periodiek controleren op container image updates:",
+            ["Settings_KeepRunningOnSwitch"] = "Containers laten doordraaien bij wisselen van profiel",
+            ["Settings_ConfirmOnSwitch"] = "Altijd bevestiging vragen bij wisselen van profiel",
+            ["Settings_SaveAndClose"] = "Opslaan & Sluiten",
+
+            // Dockerize App Dialog
+            ["Dockerize_Subheader"] = "Analyseer de projectmap, kies variabelen en publiceer automatisch naar GitHub & GHCR.",
+            ["Dockerize_PermissionsHelpBtn"] = "ℹ️ Rechten & Hulp",
+            ["Dockerize_Step1Header"] = "📁 Stap 1: Selecteer de Projectmap",
+            ["Dockerize_BrowseBtn"] = "📂 Bladeren...",
+            ["Dockerize_Step2Header"] = "⚙️ Stap 2: Container & Repository Instellingen",
+            ["Dockerize_AppNameLabel"] = "Container / Appnaam:",
+            ["Dockerize_PortLabel"] = "Poort:",
+            ["Dockerize_ReleaseTagLabel"] = "Release Tag (Datum):",
+            ["Dockerize_PythonCmdLabel"] = "Python Startcommando (bijv. python main.py of uvicorn app:app --host 0.0.0.0 --port 8000):",
+            ["Dockerize_NamespaceLabel"] = "Account / Namespace (met schrijfrechten):",
+            ["Dockerize_ReleaseTagPreview"] = "🏷️ Vaste Release Tag: ",
+            ["Dockerize_RollingTagPreview"] = "🏷️ Rolling Tag (Latest): ",
+            ["Dockerize_BaseImageLabel"] = "Basis Docker Image:",
+            ["Dockerize_EntrypointLabel"] = "Start DLL (Entrypoint):",
+            ["Dockerize_Step3Header"] = "📋 Stap 3: Gevonden Instellingen & Omgevingsvariabelen",
+            ["Dockerize_Step3Subheader"] = "Vink aan welke variabelen je via DockerManager live wilt kunnen aanpassen:",
+            ["Dockerize_ToggleAll"] = "Alles Aan/Uit",
+            ["Dockerize_ViewDockerfile"] = "👁️ Bekijk Dockerfile",
+            ["Dockerize_TzAms"] = "⏰ Tijdzone instellen op Europe/Amsterdam (Nederlandse datum, tijd & valuta)",
+            ["Dockerize_Volume"] = "💾 Persistent data volume aanmaken (./volumes/<app>/data ➔ /app/data)",
+            ["Dockerize_PushRegistry"] = "📤 Na bouwen direct uploaden naar registry (docker push)",
+            ["Dockerize_AddToProfile"] = "✨ Direct toevoegen aan actief profiel in DockerManager",
+            ["Dockerize_CloudflareEnable"] = "☁️ Publiek subdomein koppelen via Cloudflare Tunnel (HTTPS)",
+            ["Dockerize_CloudflareSubdomainTip"] = "🔒 Verkeer wordt via Cloudflare HTTPS doorgestuurd naar jouw container. Geschikt voor Microsoft Graph webhooks.",
+            ["Dockerize_SaveDockerfileBtn"] = "💾 Dockerfile opslaan in projectmap",
+            ["Dockerize_BuildAndAddBtn"] = "🚀 Bouwen & Toevoegen aan Profiel",
+            ["Dockerize_ViewOnGitHub"] = "🌐 Bekijk op GitHub Repo"
+        },
+
+        // -------------------------
+        // ENGLISH (EN)
+        // -------------------------
+        ["en"] = new(StringComparer.OrdinalIgnoreCase)
+        {
+            // Menus
+            ["Menu_File"] = "📁 File",
+            ["Menu_AddContainer"] = "➕ Add Container...",
+            ["Menu_NewProfile"] = "📄 New Profile...",
+            ["Menu_ImportCompose"] = "📥 Import Docker Compose (YAML)...",
+            ["Menu_ExportCompose"] = "💾 Export to Docker Compose (YAML)...",
+            ["Menu_SyncProfiles"] = "🔄 Reload & Sync Profiles",
+            ["Export_Success"] = "Profile successfully exported to docker-compose.yml!",
+            ["Export_Empty"] = "The active profile has no containers to export.",
+            ["Menu_ImportProfile"] = "📥 Import Profile (JSON)...",
+            ["Menu_ExportProfile"] = "💾 Export Profile (JSON)...",
+            ["Menu_BackupAll"] = "📦 Backup All Volumes to ZIP...",
+            ["Menu_RestoreBackup"] = "📥 Restore Volume Backup...",
+            ["Menu_Settings"] = "⚙️ Settings...",
+            ["Menu_Exit"] = "🚪 Exit",
+
+            ["Menu_Actions"] = "⚡ Actions",
+            ["Menu_StartAll"] = "▶ Start All Containers",
+            ["Menu_StopAll"] = "⏹ Stop All Containers",
+            ["Menu_RestartAll"] = "🔄 Restart All Containers",
+            ["Menu_UpdateAll"] = "🚀 Update All Containers (Pull & Restart)",
+            ["Menu_CheckPorts"] = "🔍 Check Port Conflicts...",
+            ["Menu_PruneDocker"] = "🧹 Clean Unused Docker Data (Prune)...",
+
+            ["Menu_Dockerize"] = "🚀 Dockerize App",
+            ["Menu_PublishDotnet"] = "🔷 Dockerize .NET App...",
+            ["Menu_PublishPython"] = "🐍 Dockerize Python App...",
+
+            ["Menu_Help"] = "❓ Help",
+            ["Menu_CheckUpdates"] = "🔄 Check for Updates...",
+            ["Menu_About"] = "ℹ️ About DockerManager",
+
+            // Toolbar
+            ["Toolbar_Profile"] = "Profile:",
+            ["Toolbar_ContainersCount"] = "{0} containers",
+            ["Toolbar_StartAllTip"] = "▶ Start all containers in this profile",
+            ["Toolbar_StopAllTip"] = "⏹ Stop all active containers in this profile",
+            ["Toolbar_UpdateAllTip"] = "🚀 Update all containers to the latest image",
+            ["Toolbar_RestartAllTip"] = "🔄 Restart all containers in this profile",
+            ["Toolbar_AddContainerTip"] = "➕ Add new container to this profile",
+            ["Toolbar_PublishTip"] = "📦 Dockerize and publish .NET / Python app",
+            ["Toolbar_CheckPortsTip"] = "🔍 Check for port conflicts with Windows or other containers",
+            ["Toolbar_BackupTip"] = "💾 Backup all volumes in this profile to ZIP",
+            ["Toolbar_RestoreTip"] = "📥 Restore volumes from a previously created ZIP backup",
+            ["Toolbar_SettingsTip"] = "⚙️ Settings & GitHub Token",
+
+            // Docker Status & Diagnosis
+            ["Docker_Connected"] = "Connected: {0}",
+            ["Docker_NotConnected"] = "Docker not reachable ({0})",
+            ["Docker_Checking"] = "Checking Docker...",
+            ["Docker_StartBtn"] = "🚀 Start Docker",
+            ["Docker_ReconnectBtn"] = "🔄 Reconnect",
+            ["Docker_SettingsBtn"] = "⚙️ Settings",
+            ["Docker_Starting"] = "Starting Docker Desktop. Please wait...",
+            ["Docker_StartFailed"] = "Could not automatically start Docker Desktop. Please start it manually from the Windows Start Menu.",
+            ["Docker_Diag_NotAutoStart"] = "Docker Desktop is currently NOT configured to start automatically when signing in to Windows.",
+            ["Docker_Diag_NotAutoStartTip"] = "Tip: Open Docker Desktop ➔ Settings (gear icon) ➔ check 'Start Docker Desktop when you sign in'.",
+            ["Docker_Diag_ServiceManual"] = "The Docker Windows Service is set to 'Manual' instead of 'Automatic'.",
+            ["Docker_Diag_ServiceManualTip"] = "This prevents the service from starting during Windows boot. You can change this in Windows Services (services.msc ➔ com.docker.service ➔ Automatic).",
+            ["Docker_Diag_StartingUp"] = "Docker is currently not running or still starting up.",
+            ["Docker_Diag_StartingUpTip"] = "Note: On Windows, Docker Desktop starts only after signing in (not on the Windows lock screen).",
+            ["Docker_Diag_UnreachableTip"] = "Check if Docker Desktop is installed and running, or configure the connection in Settings.",
+
+            // General & Dialogs
+            ["General_Close"] = "Close",
+            ["General_Cancel"] = "Cancel",
+            ["General_Save"] = "Save",
+            ["General_Delete"] = "Delete",
+            ["General_Edit"] = "Edit",
+            ["General_Apply"] = "Apply",
+            ["General_OK"] = "OK",
+            ["General_Yes"] = "Yes",
+            ["General_No"] = "No",
+            ["General_Loading"] = "Loading...",
+            ["General_Ready"] = "Ready",
+
+            // Settings
+            ["Settings_Title"] = "Settings",
+            ["Settings_Language"] = "Language / Taal:",
+            ["Settings_DockerConnection"] = "Docker Daemon Connection",
+            ["Settings_HostType"] = "Connection Type:",
+            ["Settings_PipeName"] = "Named Pipe Path:",
+            ["Settings_TcpUrl"] = "TCP Daemon URL:",
+            ["Settings_GitHubIntegration"] = "GitHub & Container Registry Integration",
+            ["Settings_Registries"] = "🔐 Container Registries (GHCR, Azure ACR, Docker Hub, etc.)",
+            ["Settings_AddRegistry"] = "➕ Add Registry",
+            ["Settings_RegistryServer"] = "Registry Server URL (e.g. ghcr.io, myacr.azurecr.io):",
+            ["Settings_RegistryUsername"] = "Username / Client ID:",
+            ["Settings_RegistryPassword"] = "Token / Password / Secret:",
+            ["Wizard_TargetRegistry"] = "Target Container Registry:",
+            ["Wizard_TargetRegistry_GHCR"] = "🐙 GitHub Container Registry (ghcr.io)",
+            ["Wizard_TargetRegistry_DockerHub"] = "🐳 Docker Hub (docker.io)",
+            ["Wizard_TargetRegistry_Azure"] = "🔷 Azure Container Registry (ACR)",
+            ["Wizard_TargetRegistry_GitLab"] = "🦊 GitLab Container Registry (registry.gitlab.com)",
+            ["Settings_RepoOwner"] = "GitHub Username / Organization:",
+            ["Settings_RepoName"] = "DockerManager Repository:",
+            ["Settings_DeployRepo"] = "Central Deploy Repository (Containers):",
+            ["Settings_Branch"] = "Git Branch:",
+            ["Settings_ProfilesFolder"] = "Profiles Folder in GitHub Repo:",
+            ["Settings_LocalProfilesFolder"] = "Local Profiles Folder (Optional):",
+            ["Settings_General"] = "General Options",
+            ["Settings_AutoStop"] = "Stop containers from previous profile when switching",
+            ["Settings_AutoUpdates"] = "Automatically check for updates on startup",
+
+            // Container Card & Status
+            ["Card_Name"] = "Name",
+            ["Card_Start"] = "Start",
+            ["Card_Stop"] = "Stop",
+            ["Card_Restart"] = "Restart",
+            ["Card_Update"] = "Update",
+            ["Card_UpdateLabel"] = "Update",
+            ["Card_UpdateAvailable"] = "Update Available! 🚀",
+            ["Card_Logs"] = "Logs",
+            ["Card_Edit"] = "Edit",
+            ["Card_Delete"] = "Delete",
+            ["Card_Ports"] = "Ports",
+            ["Card_Volumes"] = "Volumes",
+            ["Card_Env"] = "Environment",
+            ["Card_NoPorts"] = "No ports",
+            ["Card_NoVolumes"] = "No volumes",
+            ["Card_NotYetUpdated"] = "Not updated yet",
+            ["Time_Today"] = "Today",
+            ["Time_Yesterday"] = "Yesterday",
+            ["Card_ResourceStatsTip"] = "Live resource usage of this container",
+            ["Card_TerminalTip"] = "Open interactive terminal / shell in container",
+            ["Card_EditTip"] = "Configure/edit container",
+            ["Card_StartTip"] = "Start container",
+            ["Card_StopTip"] = "Stop container",
+            ["Card_RestartTip"] = "Restart container with current configuration",
+            ["Card_UpdateTip"] = "Pull latest image & restart preserving volumes",
+            ["Card_LogsTip"] = "View real-time live logs",
+            ["Card_DeleteTip"] = "Remove container from this profile",
+            ["Card_Status_Running"] = "Running",
+            ["Card_Status_Stopped"] = "Stopped",
+            ["Card_Status_Created"] = "Created",
+            ["Card_Status_Paused"] = "Paused",
+            ["Card_Status_Restarting"] = "Restarting...",
+            ["Card_Status_Updating"] = "Updating...",
+            ["Card_Status_NotStarted"] = "Not started",
+            ["Card_Status_Dead"] = "Dead",
+            ["Card_Status_Error"] = "Error",
+            ["Card_Status_Unknown"] = "Unknown",
+
+            // Status Bar & Toolbar
+            ["Docker_Active"] = "Docker is running ({0})",
+            ["Status_LastSync"] = "Last sync: {0}",
+            ["Toolbar_SearchTip"] = "Search by container name, image, or port...",
+            ["Toolbar_ClearFilterTip"] = "Clear filter",
+            ["Banner_ProfileModified"] = "Profile file modified on disk or GitHub! Click reload to apply changes immediately.",
+            ["Banner_ReloadBtn"] = "🔄 Reload & Apply Now",
+            ["Banner_DismissTip"] = "Dismiss alert",
+
+            // System Tray & Minimize
+            ["Tray_MinimizedTip"] = "Minimized to system tray. Containers continue running!",
+            ["Tray_Open"] = "📂 Open DockerManager",
+            ["Tray_StartAll"] = "▶ Start All",
+            ["Tray_StopAll"] = "⏹ Stop All",
+            ["Tray_UpdateAll"] = "🚀 Update All",
+            ["Tray_BackupVolumes"] = "💾 Backup Volumes",
+            ["Tray_CheckPorts"] = "🔍 Check Port Conflicts",
+            ["Tray_Exit"] = "❌ Exit",
+
+            // Port Conflict Dialog
+            ["Ports_Title"] = "🔍 Port Conflicts & Status Monitor",
+            ["Ports_Subtitle"] = "Overview of active ports in Docker and local Windows host services",
+            ["Ports_NoConflicts"] = "🎉 No port conflicts detected! All container ports are available.",
+            ["Ports_ConflictsDetected"] = "⚠️ Warning: Port conflicts were detected!",
+            ["Ports_ContainerName"] = "Container",
+            ["Ports_HostPort"] = "Host Port",
+            ["Ports_ContainerPort"] = "Container Port",
+            ["Ports_Protocol"] = "Protocol",
+            ["Ports_Status"] = "Status",
+            ["Ports_Process"] = "Occupied by Process",
+            ["Ports_ChangePort"] = "Change Port",
+            ["Ports_Refresh"] = "🔄 Re-scan",
+
+            // Backup & Restore
+            ["Backup_Title"] = "💾 Create Volume Backup",
+            ["Backup_Success"] = "Backup successfully saved to:\n{0}",
+            ["Backup_Failed"] = "Backup failed: {0}",
+            ["Restore_Title"] = "📥 Restore Volume Backup",
+            ["Restore_Success"] = "Backup restored successfully!",
+            ["Restore_Failed"] = "Failed to restore backup: {0}",
+
+            // Add Profile Dialog
+            ["AddProfile_Title"] = "Create New Profile",
+            ["AddProfile_Header"] = "Create New Profile",
+            ["AddProfile_Subheader"] = "Creates a new container profile (stack) on disk.",
+            ["AddProfile_ExplainerTitle"] = "💡 What is a profile?",
+            ["AddProfile_ExplainerBody"] = "A profile groups multiple containers that together form a stack or application. All containers in the same profile share the same Docker network, enabling direct discovery by container name (e.g. webapp to database).",
+            ["AddProfile_NameLabel"] = "Profile Name (e.g. WebApp, Production, Home):",
+            ["AddProfile_DescLabel"] = "Description (optional):",
+            ["AddProfile_CreateBtn"] = "➕ Create Profile",
+
+            // Edit / Add Service Dialog
+            ["EditService_Title"] = "Edit Container",
+            ["EditService_Header"] = "📦 Container Properties",
+            ["EditService_Subheader"] = "Configure container image, ports, volumes, and environment variables.",
+            ["EditService_NetworkTip"] = "💡 Containers within the same profile automatically share one Docker network and can communicate directly using their container name.",
+            ["EditService_General"] = "General",
+            ["EditService_DisplayName"] = "Display Name:",
+            ["EditService_ContainerName"] = "Container Name:",
+            ["EditService_ImageLabel"] = "Docker Image (e.g. nginx:alpine or ghcr.io/username/app:latest):",
+            ["EditService_DownloadInspect"] = "Download and inspect image",
+            ["EditService_PrivatePackage"] = "🔒 Private Package / Authentication Required",
+            ["EditService_PrivatePackageTip"] = "(uses your saved GitHub Token for ghcr.io)",
+            ["EditService_InspectToolTip"] = "Downloads image and automatically inspects ports, working directory, and environment variables",
+            ["EditService_Description"] = "Description (optional):",
+            ["EditService_WorkingDir"] = "Working Directory (e.g. /app):",
+            ["EditService_WorkingDirTip"] = "Leave empty to use the container image's default WORKDIR",
+            ["EditService_StartCommand"] = "Start Command (e.g. python manage.py runserver ...):",
+            ["EditService_StartCommandTip"] = "Leave empty to use the container image's default CMD",
+            ["EditService_RestartPolicy"] = "Restart Policy:",
+            ["EditService_AutoStart"] = "Start automatically on launch",
+            ["EditService_PortsHeader"] = "Port Mappings (Host → Container)",
+            ["EditService_AddPort"] = "+ Add Port",
+            ["EditService_VolumesHeader"] = "Volumes / Data Storage",
+            ["EditService_AddVolume"] = "+ Add Volume",
+            ["EditService_EnvHeader"] = "Environment Variables (.env)",
+            ["EditService_AddEnv"] = "+ Add Variable",
+            ["EditService_CloudflareHeader"] = "☁️ Connect to Cloudflare Tunnel (Public HTTPS Access)",
+            ["EditService_CloudflarePort"] = "Port:",
+            ["EditService_CloudflareTip"] = "🔒 Traffic is routed to your container over Cloudflare HTTPS. Ideal for webhooks and external access.",
+
+            // Log Viewer Dialog
+            ["LogViewer_Header"] = "📜 Live Container Logs",
+            ["LogViewer_Streaming"] = "Streaming: {0}",
+            ["LogViewer_Copy"] = "📋 Copy",
+            ["LogViewer_Clear"] = "🧹 Clear",
+            ["LogViewer_Stop"] = "⏹ Stop",
+            ["LogViewer_AutoScroll"] = "Auto-scroll to bottom",
+
+            // Profile Switch Dialog
+            ["ProfileSwitch_Title"] = "Switch Profile",
+            ["ProfileSwitch_Tip"] = "💡 By default, containers continue running so services are not interrupted. If there is a port conflict, you can stop them at any time.",
+            ["ProfileSwitch_StopAll"] = "⏹ Stop All",
+            ["ProfileSwitch_KeepRunning"] = "▶ Keep Running (Default)",
+
+            // Import Compose Dialog
+            ["ImportCompose_Title"] = "📥 Import Docker Compose — DockerManager",
+            ["ImportCompose_Header"] = "📥 Import Docker Compose",
+            ["ImportCompose_Subheader"] = "Select a docker-compose.yml file or paste YAML directly to import containers.",
+            ["ImportCompose_Step1"] = "📄 Step 1: YAML File or Content",
+            ["ImportCompose_Browse"] = "📂 Choose File...",
+            ["ImportCompose_PasteTip"] = "Or paste docker-compose YAML content here:",
+            ["ImportCompose_Analyze"] = "🔍 Analyze YAML",
+            ["ImportCompose_Step2"] = "🎯 Step 2: Destination of Imported Containers",
+            ["ImportCompose_TargetActive"] = "Add to active profile: ",
+            ["ImportCompose_Recommended"] = " (Recommended)",
+            ["ImportCompose_TargetNew"] = "Create new profile",
+            ["ImportCompose_ProfileName"] = "Profile Name:",
+            ["ImportCompose_Step3"] = "👁️ Step 3: Containers Found in YAML",
+            ["ImportCompose_PortsCount"] = "{0} port mapping(s)",
+            ["ImportCompose_VolumesCount"] = "{0} volume mapping(s)",
+            ["ImportCompose_ImportBtn"] = "📥 Import / Add",
+
+            // GitHub Login Dialog
+            ["GitHub_LoggedIn"] = "Logged in ✅",
+            ["GitHub_SignIn"] = "Sign in with GitHub",
+            ["GitHubLogin_Title"] = "Connect GitHub Account",
+            ["GitHubLogin_Subheader"] = "For access to private packages (ghcr.io) and repository profiles",
+            ["GitHubLogin_Step1"] = "Step 1: Open GitHub (required permissions pre-selected):",
+            ["GitHubLogin_GenerateBtn"] = "🌐 1. Generate Token on GitHub (opens browser)",
+            ["GitHubLogin_Step2"] = "Step 2: Paste generated token below:",
+            ["GitHubLogin_PasteBtn"] = "📋 Paste",
+            ["GitHubLogin_VerifyBtn"] = "🔑 2. Verify & Sign In",
+            ["GitHubLogin_DpapiTip"] = "🔒 Token is encrypted locally with Windows DPAPI",
+
+            // Settings Dialog Sections & Labels
+            ["Settings_Subheader"] = "Manage Docker connection, container registries, and application preferences.",
+            ["Settings_HostDescription"] = "Choose whether Docker runs locally on Windows or on an external server / test PC across the network.",
+            ["Settings_HostLocal"] = "Local (Windows Named Pipe)",
+            ["Settings_HostTcp"] = "Network / Test PC (TCP Endpoint)",
+            ["Settings_TestDocker"] = "Test Docker Connection",
+            ["Settings_RegistriesDpapi"] = "🔒 Encrypted via Windows DPAPI",
+            ["Settings_RegistriesDesc"] = "Manage authentication for pulling and pushing container images to registries like ghcr.io, Docker Hub, or Azure ACR.",
+            ["Settings_AddExtraRegistry"] = "➕ Add Extra Registry (Azure ACR, GitLab, Docker Hub, Harbor):",
+            ["Settings_AddBtn"] = "Add",
+            ["Settings_AddRegistryHelp"] = "Enter Server URL, Username, and Token and click 'Add'.",
+            ["Settings_CloudflareHeader"] = "☁️ Cloudflare Tunnel (Public HTTPS Access & Webhooks)",
+            ["Settings_CloudflareDesc"] = "Connect your Cloudflare Zero Trust tunnel to automatically create public HTTPS subdomains (with free SSL) for Microsoft Graph callbacks and webhooks when dockerizing.",
+            ["Settings_ActiveTunnel"] = "Active Tunnel:",
+            ["Settings_FetchTunnels"] = "🔄 Fetch Tunnels",
+            ["Settings_NewTunnel"] = "➕ New Tunnel",
+            ["Settings_CreateTunnelHeader"] = "Create New Cloudflare Tunnel:",
+            ["Settings_CreateInCloudflare"] = "Create in Cloudflare",
+            ["Settings_MainDomain"] = "Apex Domain (Zone):",
+            ["Settings_TestCloudflare"] = "🔍 Test Connection & Validate Tunnel",
+            ["Settings_AppPreferences"] = "🎛️ Application Preferences",
+            ["Settings_AutoCheckProfiles"] = "Automatically check for profile updates on startup",
+            ["Settings_AutoCheckImages"] = "Periodically check for container image updates:",
+            ["Settings_KeepRunningOnSwitch"] = "Keep containers running when switching profiles",
+            ["Settings_ConfirmOnSwitch"] = "Always ask confirmation when switching profiles",
+            ["Settings_SaveAndClose"] = "Save & Close",
+
+            // Dockerize App Dialog
+            ["Dockerize_Subheader"] = "Analyze project directory, select environment variables, and publish to GitHub & GHCR.",
+            ["Dockerize_PermissionsHelpBtn"] = "ℹ️ Permissions & Help",
+            ["Dockerize_Step1Header"] = "📁 Step 1: Select Project Directory",
+            ["Dockerize_BrowseBtn"] = "📂 Browse...",
+            ["Dockerize_Step2Header"] = "⚙️ Step 2: Container & Repository Settings",
+            ["Dockerize_AppNameLabel"] = "Container / App Name:",
+            ["Dockerize_PortLabel"] = "Port:",
+            ["Dockerize_ReleaseTagLabel"] = "Release Tag (Date):",
+            ["Dockerize_PythonCmdLabel"] = "Python Start Command (e.g. python main.py or uvicorn app:app --host 0.0.0.0 --port 8000):",
+            ["Dockerize_NamespaceLabel"] = "Account / Namespace (with write access):",
+            ["Dockerize_ReleaseTagPreview"] = "🏷️ Fixed Release Tag: ",
+            ["Dockerize_RollingTagPreview"] = "🏷️ Rolling Tag (Latest): ",
+            ["Dockerize_BaseImageLabel"] = "Base Docker Image:",
+            ["Dockerize_EntrypointLabel"] = "Start DLL (Entrypoint):",
+            ["Dockerize_Step3Header"] = "📋 Step 3: Detected Settings & Environment Variables",
+            ["Dockerize_Step3Subheader"] = "Check the variables you want to be able to configure live in DockerManager:",
+            ["Dockerize_ToggleAll"] = "Toggle All",
+            ["Dockerize_ViewDockerfile"] = "👁️ View Dockerfile",
+            ["Dockerize_TzAms"] = "⏰ Set timezone to Europe/Amsterdam (Dutch date, time & currency formatting)",
+            ["Dockerize_Volume"] = "💾 Create persistent data volume (./volumes/<app>/data ➔ /app/data)",
+            ["Dockerize_PushRegistry"] = "📤 Upload directly to registry after build (docker push)",
+            ["Dockerize_AddToProfile"] = "✨ Directly add to active profile in DockerManager",
+            ["Dockerize_CloudflareEnable"] = "☁️ Connect public subdomain via Cloudflare Tunnel (HTTPS)",
+            ["Dockerize_CloudflareSubdomainTip"] = "🔒 Traffic is routed to your container via Cloudflare HTTPS. Suitable for Microsoft Graph webhooks.",
+            ["Dockerize_SaveDockerfileBtn"] = "💾 Save Dockerfile to project folder",
+            ["Dockerize_BuildAndAddBtn"] = "🚀 Build & Add to Profile",
+            ["Dockerize_ViewOnGitHub"] = "🌐 View on GitHub Repo"
+        }
+    };
+
+    public void SetLanguage(string langCode)
+    {
+        if (string.IsNullOrWhiteSpace(langCode) || langCode.Equals("auto", StringComparison.OrdinalIgnoreCase))
+        {
+            var systemCulture = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.ToLowerInvariant();
+            _currentLanguage = systemCulture == "nl" ? "nl" : "en";
+        }
+        else
+        {
+            _currentLanguage = langCode.ToLowerInvariant().StartsWith("nl") ? "nl" : "en";
+        }
+
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(string.Empty));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Item[]"));
+        LanguageChanged?.Invoke();
+    }
+
+    public string Get(string key, params object[] args)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return string.Empty;
+
+        if (_translations.TryGetValue(_currentLanguage, out var dict) && dict.TryGetValue(key, out var text))
+        {
+            return args.Length > 0 ? string.Format(text, args) : text;
+        }
+
+        // Fallback to English
+        if (_translations.TryGetValue("en", out var enDict) && enDict.TryGetValue(key, out var enText))
+        {
+            return args.Length > 0 ? string.Format(enText, args) : enText;
+        }
+
+        return key;
+    }
+}
