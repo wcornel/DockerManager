@@ -10,6 +10,9 @@ public interface IGitHubProfileService
 {
     Task<List<ProfileModel>> LoadProfilesAsync(bool forceRefreshFromGitHub = false, CancellationToken ct = default);
     Task<List<ProfileModel>> LoadProfilesAsync(string? subfolder, bool forceRefreshFromGitHub = false, CancellationToken ct = default);
+    List<ProfileModel> LoadProfilesLocally(string? subfolder = null);
+    void SaveProfileLocally(ProfileModel profile, string? subfolder = null);
+    void DeleteProfileLocally(string profileName, string? subfolder = null);
     Task<(bool Success, string Message)> TestGitHubConnectionAsync(string? overrideToken = null, CancellationToken ct = default);
     Task SaveProfileLocallyAsync(ProfileModel profile, CancellationToken ct = default);
     Task SaveProfileLocallyAsync(ProfileModel profile, string? subfolder, CancellationToken ct = default);
@@ -131,9 +134,31 @@ public class GitHubProfileService : IGitHubProfileService
         await File.WriteAllTextAsync(filePath, json, ct);
     }
 
-    public Task DeleteProfileLocallyAsync(string profileName, string? subfolder = null, CancellationToken ct = default)
+    public void SaveProfileLocally(ProfileModel profile, string? subfolder = null)
     {
-        if (string.IsNullOrWhiteSpace(profileName)) return Task.CompletedTask;
+        var localDir = _settingsService.Settings.LocalProfilesFolder;
+        if (string.IsNullOrWhiteSpace(localDir))
+        {
+            localDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles");
+        }
+
+        if (string.IsNullOrWhiteSpace(subfolder))
+        {
+            subfolder = _settingsService.Settings.GetActiveServer().ProfilesSubfolder;
+        }
+
+        var targetDir = Path.Combine(localDir, subfolder);
+        Directory.CreateDirectory(targetDir);
+
+        var safeName = string.Join("_", profile.Name.Split(Path.GetInvalidFileNameChars())).ToLowerInvariant();
+        var filePath = Path.Combine(targetDir, $"{safeName}.json");
+        var json = JsonSerializer.Serialize(profile, JsonOptions);
+        File.WriteAllText(filePath, json);
+    }
+
+    public void DeleteProfileLocally(string profileName, string? subfolder = null)
+    {
+        if (string.IsNullOrWhiteSpace(profileName)) return;
 
         var localDir = _settingsService.Settings.LocalProfilesFolder;
         if (string.IsNullOrWhiteSpace(localDir))
@@ -147,7 +172,7 @@ public class GitHubProfileService : IGitHubProfileService
         }
 
         var targetDir = Path.Combine(localDir, subfolder);
-        if (!Directory.Exists(targetDir)) return Task.CompletedTask;
+        if (!Directory.Exists(targetDir)) return;
 
         var safeName = string.Join("_", profileName.Split(Path.GetInvalidFileNameChars())).ToLowerInvariant();
         var candidates = new[]
@@ -167,7 +192,88 @@ public class GitHubProfileService : IGitHubProfileService
                 catch { }
             }
         }
+    }
 
+    public List<ProfileModel> LoadProfilesLocally(string? subfolder = null)
+    {
+        var profiles = new List<ProfileModel>();
+        var settings = _settingsService.Settings;
+        var localDir = settings.LocalProfilesFolder;
+
+        if (string.IsNullOrWhiteSpace(localDir))
+        {
+            localDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles");
+        }
+
+        if (string.IsNullOrWhiteSpace(subfolder))
+        {
+            subfolder = settings.GetActiveServer().ProfilesSubfolder;
+        }
+
+        var targetDir = Path.Combine(localDir, subfolder);
+
+        if (!Directory.Exists(targetDir))
+        {
+            Directory.CreateDirectory(targetDir);
+        }
+
+        if (Directory.Exists(targetDir))
+        {
+            var jsonFiles = Directory.GetFiles(targetDir, "*.json");
+            foreach (var file in jsonFiles)
+            {
+                try
+                {
+                    var content = File.ReadAllText(file);
+                    var profile = JsonSerializer.Deserialize<ProfileModel>(content, JsonOptions);
+                    if (profile != null && !string.IsNullOrWhiteSpace(profile.Name))
+                    {
+                        profiles.Add(profile);
+                    }
+                }
+                catch
+                {
+                    // Skip invalid file
+                }
+            }
+        }
+
+        if (profiles.Count == 0)
+        {
+            var rootExample = Path.Combine(localDir, "example.json");
+            if (File.Exists(rootExample))
+            {
+                try
+                {
+                    var content = File.ReadAllText(rootExample);
+                    var profile = JsonSerializer.Deserialize<ProfileModel>(content, JsonOptions);
+                    if (profile != null && !string.IsNullOrWhiteSpace(profile.Name))
+                    {
+                        profiles.Add(profile);
+                        SaveProfileLocally(profile, subfolder);
+                    }
+                }
+                catch { }
+            }
+
+            if (profiles.Count == 0)
+            {
+                var defaultProfile = CreateDefaultProfile();
+                profiles.Add(defaultProfile);
+                try
+                {
+                    SaveProfileLocally(defaultProfile, subfolder);
+                }
+                catch { }
+            }
+        }
+
+        return profiles;
+    }
+
+    public Task DeleteProfileLocallyAsync(string profileName, string? subfolder = null, CancellationToken ct = default)
+    {
+        DeleteProfileLocally(profileName, subfolder);
         return Task.CompletedTask;
     }
 
