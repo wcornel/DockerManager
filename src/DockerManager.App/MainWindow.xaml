@@ -27,9 +27,7 @@
         <Menu Grid.Row="0" Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="0,0,0,1" Padding="4,2">
             <MenuItem Header="{helpers:Loc Menu_File}">
                 <MenuItem Header="{helpers:Loc Menu_AddContainer}" Command="{Binding AddNewServiceCommand}"/>
-                <MenuItem Header="{helpers:Loc Menu_NewProfile}" Click="AddNewProfileMenu_Click"/>
                 <MenuItem Header="{helpers:Loc Menu_ProfileSettings}" Command="{Binding OpenProfileSettingsCommand}"/>
-                <MenuItem Header="{helpers:Loc Menu_DeleteProfile}" Command="{Binding DeleteCurrentProfileCommand}"/>
                 <MenuItem Header="{helpers:Loc Menu_ImportCompose}" Click="ImportComposeMenu_Click"/>
                 <MenuItem Header="{helpers:Loc Menu_ExportCompose}" Click="ExportComposeMenu_Click"/>
                 <Separator Background="#E2E8F0"/>

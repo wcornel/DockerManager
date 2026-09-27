@@ -20,17 +20,24 @@ public class ProfileCopySource
 
 public partial class ProfileSettingsViewModel : ObservableObject
 {
-    private readonly ProfileModel _profile;
-    private readonly IEnumerable<ProfileModel> _allProfiles;
     private readonly ISettingsService _settingsService;
     private readonly ICredentialService _credentialService;
     private readonly ICloudflareService _cloudflareService;
     private readonly IDockerService _dockerService;
+    private readonly IGitHubProfileService? _gitHubProfileService;
+
+    public ObservableCollection<ProfileModel> Profiles { get; } = new();
+
+    private readonly Dictionary<ProfileModel, string> _originalNames = new();
+    private readonly List<ProfileModel> _deletedProfiles = new();
+
+    [ObservableProperty]
+    private ProfileModel? _editingProfile;
 
     [ObservableProperty]
     private string _name = string.Empty;
 
-    public string OriginalName { get; }
+    public string OriginalName => EditingProfile != null && _originalNames.TryGetValue(EditingProfile, out var orig) ? orig : Name;
 
     [ObservableProperty]
     private string _description = string.Empty;
@@ -97,57 +104,198 @@ public partial class ProfileSettingsViewModel : ObservableObject
         ISettingsService settingsService,
         ICredentialService credentialService,
         ICloudflareService cloudflareService,
-        IDockerService dockerService)
+        IDockerService dockerService,
+        IGitHubProfileService? gitHubProfileService = null)
     {
-        _profile = profile;
-        OriginalName = profile.Name;
-        _allProfiles = allProfiles ?? Enumerable.Empty<ProfileModel>();
         _settingsService = settingsService;
         _credentialService = credentialService;
         _cloudflareService = cloudflareService;
         _dockerService = dockerService;
+        _gitHubProfileService = gitHubProfileService;
 
-        Name = profile.Name;
-        Description = profile.Description;
-        AutoStopPreviousOnSwitch = profile.AutoStopPreviousOnSwitch;
-
-        // Initialize Cloudflare fields
-        if (profile.Cloudflare != null)
+        Profiles.Clear();
+        if (allProfiles != null)
         {
-            CloudflareAccountId = profile.Cloudflare.AccountId ?? string.Empty;
-            CloudflareTunnelId = profile.Cloudflare.TunnelId ?? string.Empty;
-            CloudflareDomain = profile.Cloudflare.Domain ?? string.Empty;
-            CloudflareApiToken = profile.Cloudflare.ApiToken ?? string.Empty;
-            CloudflareTunnelToken = profile.Cloudflare.TunnelToken ?? string.Empty;
+            foreach (var p in allProfiles)
+            {
+                if (!Profiles.Any(x => x.Name.Equals(p.Name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    Profiles.Add(p);
+                    _originalNames[p] = p.Name;
+                }
+            }
         }
 
-        // Initialize Registry fields
-        if (profile.Registry != null)
+        if (profile != null && !Profiles.Any(x => x.Name.Equals(profile.Name, StringComparison.OrdinalIgnoreCase)))
         {
-            RegistryServer = !string.IsNullOrWhiteSpace(profile.Registry.Server) ? profile.Registry.Server : "ghcr.io";
-            RegistryNamespace = profile.Registry.Namespace ?? string.Empty;
-            RegistryUsername = profile.Registry.Username ?? string.Empty;
-            RegistryPassword = profile.Registry.Password ?? string.Empty;
+            Profiles.Insert(0, profile);
+            _originalNames[profile] = profile.Name;
         }
 
-        // Populate Copy Sources
+        var initial = Profiles.FirstOrDefault(p => p.Name.Equals(profile?.Name, StringComparison.OrdinalIgnoreCase)) ?? Profiles.FirstOrDefault();
+        EditingProfile = initial;
+        if (initial != null)
+        {
+            LoadFromProfile(initial);
+        }
+    }
+
+    partial void OnEditingProfileChanged(ProfileModel? oldValue, ProfileModel? newValue)
+    {
+        if (oldValue != null)
+        {
+            CommitToProfile(oldValue);
+        }
+
+        if (newValue != null)
+        {
+            LoadFromProfile(newValue);
+        }
+    }
+
+    private void CommitToProfile(ProfileModel p)
+    {
+        p.Name = Name.Trim();
+        p.Description = Description.Trim();
+        p.AutoStopPreviousOnSwitch = AutoStopPreviousOnSwitch;
+
+        p.Cloudflare ??= new ProfileCloudflareConfig();
+        p.Cloudflare.AccountId = CloudflareAccountId.Trim();
+        p.Cloudflare.TunnelId = CloudflareTunnelId.Trim();
+        p.Cloudflare.Domain = CloudflareDomain.Trim().TrimStart('.').ToLowerInvariant();
+        p.Cloudflare.ApiToken = CloudflareApiToken.Trim();
+        p.Cloudflare.TunnelToken = CloudflareTunnelToken.Trim();
+
+        p.Registry ??= new ProfileRegistryConfig();
+        p.Registry.Server = RegistryServer.Trim();
+        p.Registry.Namespace = RegistryNamespace.Trim();
+        p.Registry.Username = RegistryUsername.Trim();
+        p.Registry.Password = RegistryPassword.Trim();
+    }
+
+    private void LoadFromProfile(ProfileModel p)
+    {
+        Name = p.Name;
+        Description = p.Description;
+        AutoStopPreviousOnSwitch = p.AutoStopPreviousOnSwitch;
+
+        if (p.Cloudflare != null)
+        {
+            CloudflareAccountId = p.Cloudflare.AccountId ?? string.Empty;
+            CloudflareTunnelId = p.Cloudflare.TunnelId ?? string.Empty;
+            CloudflareDomain = p.Cloudflare.Domain ?? string.Empty;
+            CloudflareApiToken = p.Cloudflare.ApiToken ?? string.Empty;
+            CloudflareTunnelToken = p.Cloudflare.TunnelToken ?? string.Empty;
+        }
+        else
+        {
+            CloudflareAccountId = string.Empty;
+            CloudflareTunnelId = string.Empty;
+            CloudflareDomain = string.Empty;
+            CloudflareApiToken = string.Empty;
+            CloudflareTunnelToken = string.Empty;
+        }
+
+        if (p.Registry != null)
+        {
+            RegistryServer = !string.IsNullOrWhiteSpace(p.Registry.Server) ? p.Registry.Server : "ghcr.io";
+            RegistryNamespace = p.Registry.Namespace ?? string.Empty;
+            RegistryUsername = p.Registry.Username ?? string.Empty;
+            RegistryPassword = p.Registry.Password ?? string.Empty;
+        }
+        else
+        {
+            RegistryServer = "ghcr.io";
+            RegistryNamespace = string.Empty;
+            RegistryUsername = string.Empty;
+            RegistryPassword = string.Empty;
+        }
+
+        RefreshCopySources();
+    }
+
+    private void RefreshCopySources()
+    {
+        CopySources.Clear();
         CopySources.Add(new ProfileCopySource
         {
             DisplayName = "⚙️ Globale Standaard Instellingen (App)",
             IsGlobalDefaults = true
         });
 
-        foreach (var p in _allProfiles.Where(p => !p.Name.Equals(profile.Name, StringComparison.OrdinalIgnoreCase)))
+        if (EditingProfile != null)
         {
-            CopySources.Add(new ProfileCopySource
+            foreach (var p in Profiles.Where(p => !p.Name.Equals(EditingProfile.Name, StringComparison.OrdinalIgnoreCase)))
             {
-                DisplayName = $"📄 Profiel: {p.Name}",
-                IsGlobalDefaults = false,
-                SourceProfile = p
-            });
+                CopySources.Add(new ProfileCopySource
+                {
+                    DisplayName = $"📄 Profiel: {p.Name}",
+                    IsGlobalDefaults = false,
+                    SourceProfile = p
+                });
+            }
         }
 
         SelectedCopySource = CopySources.FirstOrDefault();
+        CopyStatusMessage = string.Empty;
+    }
+
+    [RelayCommand]
+    private void AddProfile()
+    {
+        if (EditingProfile != null)
+        {
+            CommitToProfile(EditingProfile);
+        }
+
+        var count = Profiles.Count + 1;
+        var newName = $"Profiel {count}";
+        while (Profiles.Any(p => p.Name.Equals(newName, StringComparison.OrdinalIgnoreCase)))
+        {
+            count++;
+            newName = $"Profiel {count}";
+        }
+
+        var newProfile = new ProfileModel
+        {
+            Name = newName,
+            Description = string.Empty,
+            Cloudflare = EditingProfile?.Cloudflare?.Clone() ?? new ProfileCloudflareConfig(),
+            Registry = EditingProfile?.Registry?.Clone() ?? new ProfileRegistryConfig()
+        };
+
+        _originalNames[newProfile] = newName;
+        Profiles.Add(newProfile);
+        EditingProfile = newProfile;
+    }
+
+    [RelayCommand]
+    private void DeleteProfile()
+    {
+        if (EditingProfile == null || Profiles.Count <= 1)
+        {
+            System.Windows.MessageBox.Show(
+                "Het actieve profiel kan niet worden verwijderd omdat er minimaal één profiel aanwezig moet zijn.",
+                "Profiel Verwijderen",
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Information);
+            return;
+        }
+
+        var toDelete = EditingProfile;
+        var confirm = System.Windows.MessageBox.Show(
+            $"Weet je zeker dat je profiel '{toDelete.Name}' wilt verwijderen?\n\nDe actieve containers van dit profiel worden gestopt en het configuratiebestand wordt verwijderd bij het opslaan.",
+            "Profiel Verwijderen",
+            System.Windows.MessageBoxButton.YesNo,
+            System.Windows.MessageBoxImage.Warning);
+
+        if (confirm != System.Windows.MessageBoxResult.Yes) return;
+
+        var idx = Profiles.IndexOf(toDelete);
+        Profiles.Remove(toDelete);
+        _deletedProfiles.Add(toDelete);
+
+        EditingProfile = Profiles[Math.Max(0, idx - 1)];
     }
 
     [RelayCommand]
@@ -294,26 +442,64 @@ public partial class ProfileSettingsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void Save()
+    private async Task SaveAsync()
     {
-        if (string.IsNullOrWhiteSpace(Name)) return;
+        if (EditingProfile != null)
+        {
+            CommitToProfile(EditingProfile);
+        }
 
-        _profile.Name = Name.Trim();
-        _profile.Description = Description.Trim();
-        _profile.AutoStopPreviousOnSwitch = AutoStopPreviousOnSwitch;
+        var subfolder = _settingsService.Settings.GetActiveServer().ProfilesSubfolder;
 
-        _profile.Cloudflare ??= new ProfileCloudflareConfig();
-        _profile.Cloudflare.AccountId = CloudflareAccountId.Trim();
-        _profile.Cloudflare.TunnelId = CloudflareTunnelId.Trim();
-        _profile.Cloudflare.Domain = CloudflareDomain.Trim().TrimStart('.').ToLowerInvariant();
-        _profile.Cloudflare.ApiToken = CloudflareApiToken.Trim();
-        _profile.Cloudflare.TunnelToken = CloudflareTunnelToken.Trim();
+        // 1. Process deleted profiles
+        foreach (var dp in _deletedProfiles)
+        {
+            foreach (var svc in dp.Services)
+            {
+                var cName = string.IsNullOrWhiteSpace(svc.ContainerName) ? $"{dp.Name.ToLowerInvariant()}_{svc.Id}" : svc.ContainerName;
+                try
+                {
+                    await _dockerService.StopContainerAsync(cName);
+                }
+                catch { }
+            }
 
-        _profile.Registry ??= new ProfileRegistryConfig();
-        _profile.Registry.Server = RegistryServer.Trim();
-        _profile.Registry.Namespace = RegistryNamespace.Trim();
-        _profile.Registry.Username = RegistryUsername.Trim();
-        _profile.Registry.Password = RegistryPassword.Trim();
+            if (_gitHubProfileService != null)
+            {
+                await _gitHubProfileService.DeleteProfileLocallyAsync(dp.Name, subfolder);
+                if (_originalNames.TryGetValue(dp, out var oldName) && !string.Equals(oldName, dp.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    await _gitHubProfileService.DeleteProfileLocallyAsync(oldName, subfolder);
+                }
+            }
+        }
+
+        // 2. Process all current profiles
+        foreach (var p in Profiles)
+        {
+            if (string.IsNullOrWhiteSpace(p.Name)) continue;
+
+            if (_originalNames.TryGetValue(p, out var oldName) && !string.Equals(oldName, p.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                if (_gitHubProfileService != null)
+                {
+                    await _gitHubProfileService.DeleteProfileLocallyAsync(oldName, subfolder);
+                }
+            }
+
+            if (_gitHubProfileService != null)
+            {
+                await _gitHubProfileService.SaveProfileLocallyAsync(p, subfolder);
+            }
+        }
+
+        if (EditingProfile != null)
+        {
+            _settingsService.Settings.LastActiveProfile = EditingProfile.Name;
+            var activeServer = _settingsService.Settings.GetActiveServer();
+            activeServer.LastActiveProfile = EditingProfile.Name;
+            _settingsService.Save();
+        }
 
         IsSaved = true;
         RequestClose?.Invoke();
@@ -322,6 +508,7 @@ public partial class ProfileSettingsViewModel : ObservableObject
     [RelayCommand]
     private void Cancel()
     {
+        IsSaved = false;
         RequestClose?.Invoke();
     }
 }
