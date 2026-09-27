@@ -187,6 +187,7 @@ public partial class GeneralSettingsTabViewModel : SettingsTabViewModel
 
 public partial class ProfileSettingsItemViewModel : ObservableObject
 {
+    private readonly ISettingsService _settingsService;
     private readonly ICredentialService _credentialService;
     private readonly ICloudflareService _cloudflareService;
     private readonly IDockerService _dockerService;
@@ -255,12 +256,14 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
 
     public ProfileSettingsItemViewModel(
         ProfileModel profile,
+        ISettingsService settingsService,
         ICredentialService credentialService,
         ICloudflareService cloudflareService,
         IDockerService dockerService,
         IEnumerable<ProfileModel> allAvailableProfiles)
     {
         Profile = profile;
+        _settingsService = settingsService;
         _credentialService = credentialService;
         _cloudflareService = cloudflareService;
         _dockerService = dockerService;
@@ -270,20 +273,30 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
         Description = profile.Description;
         AutoStopPreviousOnSwitch = profile.AutoStopPreviousOnSwitch;
 
+        var globalSettings = _settingsService.Settings;
+
         // Cloudflare
         var cf = profile.Cloudflare ?? new ProfileCloudflareConfig();
-        CloudflareDomain = cf.Domain;
-        CloudflareAccountId = cf.AccountId;
-        CloudflareTunnelId = cf.TunnelId;
-        CloudflareApiToken = cf.ApiToken;
-        CloudflareTunnelToken = cf.TunnelToken;
+        CloudflareDomain = !string.IsNullOrWhiteSpace(cf.Domain) ? cf.Domain : (globalSettings.CloudflareDomain ?? string.Empty);
+        CloudflareAccountId = !string.IsNullOrWhiteSpace(cf.AccountId) ? cf.AccountId : (globalSettings.CloudflareAccountId ?? string.Empty);
+        CloudflareTunnelId = !string.IsNullOrWhiteSpace(cf.TunnelId) ? cf.TunnelId : (globalSettings.CloudflareTunnelId ?? string.Empty);
+        CloudflareTunnelToken = !string.IsNullOrWhiteSpace(cf.TunnelToken) ? cf.TunnelToken : (globalSettings.CloudflareTunnelToken ?? string.Empty);
+        CloudflareApiToken = !string.IsNullOrWhiteSpace(cf.ApiToken)
+            ? cf.ApiToken
+            : (_credentialService.GetCloudflareApiToken() ?? string.Empty);
 
         // Registry
         var reg = profile.Registry ?? new ProfileRegistryConfig();
-        RegistryServer = string.IsNullOrWhiteSpace(reg.Server) ? "ghcr.io" : reg.Server;
-        RegistryNamespace = reg.Namespace;
-        RegistryUsername = reg.Username;
-        RegistryPassword = reg.Password;
+        RegistryServer = !string.IsNullOrWhiteSpace(reg.Server) ? reg.Server : "ghcr.io";
+        RegistryNamespace = !string.IsNullOrWhiteSpace(reg.Namespace)
+            ? reg.Namespace
+            : (!string.IsNullOrWhiteSpace(globalSettings.LoggedInUsername) ? globalSettings.LoggedInUsername : (globalSettings.GitHubRepoOwner ?? string.Empty));
+        RegistryUsername = !string.IsNullOrWhiteSpace(reg.Username)
+            ? reg.Username
+            : (globalSettings.LoggedInUsername ?? string.Empty);
+        RegistryPassword = !string.IsNullOrWhiteSpace(reg.Password)
+            ? reg.Password
+            : (_credentialService.GetGitHubToken() ?? string.Empty);
 
         PopulateCopySources(allAvailableProfiles);
     }
@@ -291,31 +304,55 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
     public void PopulateCopySources(IEnumerable<ProfileModel> allAvailableProfiles)
     {
         CopySources.Clear();
+
+        // 1. Always offer Global Defaults
+        CopySources.Add(new ProfileCopySource
+        {
+            DisplayName = "⚙️ Globale Standaard Instellingen (App)",
+            IsGlobalDefaults = true
+        });
+
+        // 2. Offer all other profiles
         foreach (var p in allAvailableProfiles.Where(p => !p.Name.Equals(OriginalName, StringComparison.OrdinalIgnoreCase)))
         {
             var desc = string.IsNullOrWhiteSpace(p.Description) ? "" : $" ({p.Description})";
             CopySources.Add(new ProfileCopySource
             {
                 DisplayName = $"📁 Profiel '{p.Name}'{desc}",
+                IsGlobalDefaults = false,
                 SourceProfile = p
             });
         }
-        if (CopySources.Count > 0)
-        {
-            SelectedCopySource = CopySources[0];
-        }
+
+        SelectedCopySource = CopySources.FirstOrDefault();
     }
 
     [RelayCommand]
     private void CopyCloudflareSettings()
     {
-        if (SelectedCopySource?.SourceProfile?.Cloudflare is { } srcCf)
+        if (SelectedCopySource == null) return;
+
+        if (SelectedCopySource.IsGlobalDefaults)
         {
-            CloudflareDomain = srcCf.Domain;
-            CloudflareAccountId = srcCf.AccountId;
-            CloudflareTunnelId = srcCf.TunnelId;
-            CloudflareApiToken = srcCf.ApiToken;
-            CloudflareTunnelToken = srcCf.TunnelToken;
+            var s = _settingsService.Settings;
+            CloudflareDomain = s.CloudflareDomain ?? string.Empty;
+            CloudflareAccountId = s.CloudflareAccountId ?? string.Empty;
+            CloudflareTunnelId = s.CloudflareTunnelId ?? string.Empty;
+            CloudflareTunnelToken = s.CloudflareTunnelToken ?? string.Empty;
+            var token = _credentialService.GetCloudflareApiToken();
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                CloudflareApiToken = token;
+            }
+            CopyStatusMessage = "✅ Cloudflare overgenomen van globale app-instellingen!";
+        }
+        else if (SelectedCopySource.SourceProfile?.Cloudflare is { } srcCf)
+        {
+            CloudflareDomain = srcCf.Domain ?? string.Empty;
+            CloudflareAccountId = srcCf.AccountId ?? string.Empty;
+            CloudflareTunnelId = srcCf.TunnelId ?? string.Empty;
+            CloudflareApiToken = srcCf.ApiToken ?? string.Empty;
+            CloudflareTunnelToken = srcCf.TunnelToken ?? string.Empty;
             CopyStatusMessage = $"✅ Cloudflare instellingen overgenomen van '{SelectedCopySource.SourceProfile.Name}'!";
         }
     }
@@ -323,12 +360,27 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
     [RelayCommand]
     private void CopyRegistrySettings()
     {
-        if (SelectedCopySource?.SourceProfile?.Registry is { } srcReg)
+        if (SelectedCopySource == null) return;
+
+        if (SelectedCopySource.IsGlobalDefaults)
+        {
+            var s = _settingsService.Settings;
+            RegistryServer = "ghcr.io";
+            RegistryNamespace = !string.IsNullOrWhiteSpace(s.LoggedInUsername) ? s.LoggedInUsername : (s.GitHubRepoOwner ?? string.Empty);
+            RegistryUsername = s.LoggedInUsername ?? string.Empty;
+            var ghToken = _credentialService.GetGitHubToken();
+            if (!string.IsNullOrWhiteSpace(ghToken))
+            {
+                RegistryPassword = ghToken;
+            }
+            CopyStatusMessage = "✅ Container Registry overgenomen van globale app-instellingen!";
+        }
+        else if (SelectedCopySource.SourceProfile?.Registry is { } srcReg)
         {
             RegistryServer = !string.IsNullOrWhiteSpace(srcReg.Server) ? srcReg.Server : "ghcr.io";
-            RegistryNamespace = srcReg.Namespace;
-            RegistryUsername = srcReg.Username;
-            RegistryPassword = srcReg.Password;
+            RegistryNamespace = srcReg.Namespace ?? string.Empty;
+            RegistryUsername = srcReg.Username ?? string.Empty;
+            RegistryPassword = srcReg.Password ?? string.Empty;
             CopyStatusMessage = $"✅ Container Registry overgenomen van '{SelectedCopySource.SourceProfile.Name}'!";
         }
     }
@@ -338,7 +390,7 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
     {
         CopyCloudflareSettings();
         CopyRegistrySettings();
-        CopyStatusMessage = $"✅ Alle instellingen overgenomen van '{SelectedCopySource?.SourceProfile?.Name}'!";
+        CopyStatusMessage = $"✅ Alle instellingen overgenomen van '{SelectedCopySource?.DisplayName}'!";
     }
 
     [RelayCommand]
@@ -434,6 +486,7 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
 
 public partial class ServerSettingsTabViewModel : SettingsTabViewModel
 {
+    private readonly ISettingsService _settingsService;
     private readonly ICredentialService _credentialService;
     private readonly ICloudflareService _cloudflareService;
     private readonly IDockerService _dockerService;
@@ -446,7 +499,13 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
 
     partial void OnNameChanged(string value)
     {
-        Header = $"🖥️ {(string.IsNullOrWhiteSpace(value) ? "Server" : value)}";
+        UpdateHeader(value);
+    }
+
+    private void UpdateHeader(string serverName)
+    {
+        var clean = AppSettings.StripLeadingEmojis(serverName);
+        Header = $"🖥️ {(string.IsNullOrWhiteSpace(clean) ? "Server" : clean)}";
     }
 
     [ObservableProperty]
@@ -475,6 +534,14 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
     [ObservableProperty]
     private ProfileSettingsItemViewModel? _selectedProfile;
 
+    partial void OnSelectedProfileChanged(ProfileSettingsItemViewModel? value)
+    {
+        if (value != null)
+        {
+            value.PopulateCopySources(_getAllProfilesAcrossServers());
+        }
+    }
+
     public List<string> DeletedProfileNames { get; } = new();
 
     public event Action<ServerSettingsTabViewModel>? RequestDeleteServer;
@@ -482,12 +549,14 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
     public ServerSettingsTabViewModel(
         DockerServerEnvironment server,
         IEnumerable<ProfileModel> serverProfiles,
+        ISettingsService settingsService,
         ICredentialService credentialService,
         ICloudflareService cloudflareService,
         IDockerService dockerService,
         Func<IEnumerable<ProfileModel>> getAllProfilesAcrossServers)
     {
         Server = server;
+        _settingsService = settingsService;
         _credentialService = credentialService;
         _cloudflareService = cloudflareService;
         _dockerService = dockerService;
@@ -495,7 +564,7 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
 
         Icon = "🖥️";
         Name = server.Name;
-        Header = $"🖥️ {server.Name}";
+        UpdateHeader(server.Name);
         ProfilesSubfolder = server.ProfilesSubfolder;
 
         if (server.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase))
@@ -514,7 +583,7 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
 
         foreach (var p in serverProfiles)
         {
-            var pVm = new ProfileSettingsItemViewModel(p, _credentialService, _cloudflareService, _dockerService, _getAllProfilesAcrossServers());
+            var pVm = new ProfileSettingsItemViewModel(p, _settingsService, _credentialService, _cloudflareService, _dockerService, _getAllProfilesAcrossServers());
             Profiles.Add(pVm);
         }
 
@@ -545,7 +614,7 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
             Description = $"Nieuw profiel op {Name}"
         };
 
-        var pVm = new ProfileSettingsItemViewModel(newProfile, _credentialService, _cloudflareService, _dockerService, _getAllProfilesAcrossServers());
+        var pVm = new ProfileSettingsItemViewModel(newProfile, _settingsService, _credentialService, _cloudflareService, _dockerService, _getAllProfilesAcrossServers());
         Profiles.Add(pVm);
         SelectedProfile = pVm;
     }
