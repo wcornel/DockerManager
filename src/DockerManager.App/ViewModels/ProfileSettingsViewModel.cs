@@ -30,6 +30,8 @@ public partial class ProfileSettingsViewModel : ObservableObject
     [ObservableProperty]
     private string _name = string.Empty;
 
+    public string OriginalName { get; }
+
     [ObservableProperty]
     private string _description = string.Empty;
 
@@ -98,6 +100,7 @@ public partial class ProfileSettingsViewModel : ObservableObject
         IDockerService dockerService)
     {
         _profile = profile;
+        OriginalName = profile.Name;
         _allProfiles = allProfiles ?? Enumerable.Empty<ProfileModel>();
         _settingsService = settingsService;
         _credentialService = credentialService;

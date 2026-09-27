@@ -1,3 +1,4 @@
+using CommunityToolkit.Mvvm.ComponentModel;
 using System.Text.Json.Serialization;
 
 namespace DockerManager.App.Models;
@@ -48,11 +49,28 @@ public class ProfileRegistryConfig
     };
 }
 
-public class ProfileModel
+public class ProfileModel : ObservableObject
 {
-    public string Name { get; set; } = string.Empty;
-    public string Description { get; set; } = string.Empty;
-    public bool AutoStopPreviousOnSwitch { get; set; }
+    private string _name = string.Empty;
+    public string Name
+    {
+        get => _name;
+        set => SetProperty(ref _name, value);
+    }
+
+    private string _description = string.Empty;
+    public string Description
+    {
+        get => _description;
+        set => SetProperty(ref _description, value);
+    }
+
+    private bool _autoStopPreviousOnSwitch;
+    public bool AutoStopPreviousOnSwitch
+    {
+        get => _autoStopPreviousOnSwitch;
+        set => SetProperty(ref _autoStopPreviousOnSwitch, value);
+    }
 
     public ProfileCloudflareConfig Cloudflare { get; set; } = new();
     public ProfileRegistryConfig Registry { get; set; } = new();
