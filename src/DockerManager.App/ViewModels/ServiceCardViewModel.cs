@@ -11,6 +11,7 @@ public partial class ServiceCardViewModel : ObservableObject
     private readonly IDockerService _dockerService;
     private readonly ISettingsService _settingsService;
     private readonly string _profileName;
+    private readonly ProfileModel? _profile;
 
     [ObservableProperty]
     private ServiceDefinition _service;
@@ -141,8 +142,13 @@ public partial class ServiceCardViewModel : ObservableObject
 
             clean = clean.Trim('/');
 
-            // If only a subdomain was stored (no dot), append domain from settings if available
-            var domain = _settingsService?.Settings?.CloudflareDomain?.Trim().TrimStart('.').ToLowerInvariant();
+            // If only a subdomain was stored (no dot), append domain from profile or settings if available
+            var domain = _profile?.GetEffectiveCloudflareDomain(_settingsService?.Settings);
+            if (string.IsNullOrWhiteSpace(domain))
+            {
+                domain = _settingsService?.Settings?.CloudflareDomain?.Trim().TrimStart('.').ToLowerInvariant();
+            }
+
             if (!string.IsNullOrWhiteSpace(domain) && !clean.Contains('.'))
             {
                 clean = $"{clean}.{domain}";
@@ -185,12 +191,14 @@ public partial class ServiceCardViewModel : ObservableObject
         ServiceDefinition service,
         string profileName,
         IDockerService dockerService,
-        ISettingsService settingsService)
+        ISettingsService settingsService,
+        ProfileModel? profile = null)
     {
         _service = service;
         _profileName = profileName;
         _dockerService = dockerService;
         _settingsService = settingsService;
+        _profile = profile;
 
         RuntimeInfo = new ContainerRuntimeInfo
         {

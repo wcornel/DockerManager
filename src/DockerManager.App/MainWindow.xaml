@@ -28,6 +28,8 @@
             <MenuItem Header="{helpers:Loc Menu_File}">
                 <MenuItem Header="{helpers:Loc Menu_AddContainer}" Command="{Binding AddNewServiceCommand}"/>
                 <MenuItem Header="{helpers:Loc Menu_NewProfile}" Click="AddNewProfileMenu_Click"/>
+                <MenuItem Header="{helpers:Loc Menu_ProfileSettings}" Command="{Binding OpenProfileSettingsCommand}"/>
+                <MenuItem Header="{helpers:Loc Menu_DeleteProfile}" Command="{Binding DeleteCurrentProfileCommand}"/>
                 <MenuItem Header="{helpers:Loc Menu_ImportCompose}" Click="ImportComposeMenu_Click"/>
                 <MenuItem Header="{helpers:Loc Menu_ExportCompose}" Click="ExportComposeMenu_Click"/>
                 <Separator Background="#E2E8F0"/>
@@ -76,6 +78,14 @@
                               DisplayMemberPath="Name"
                               Width="150" Padding="8,4" Background="#F8FAFC" Foreground="#0F172A" BorderBrush="#CBD5E1"
                               FontSize="13" FontWeight="SemiBold" Cursor="Hand" />
+
+                    <!-- Profile Settings Button -->
+                    <Button Command="{Binding OpenProfileSettingsCommand}" 
+                            Width="30" Height="28" Margin="4,0,0,0" Padding="0"
+                            Background="#F8FAFC" Foreground="#334155" BorderBrush="#CBD5E1" BorderThickness="1"
+                            Cursor="Hand" ToolTip="{helpers:Loc Toolbar_ProfileSettingsTip}">
+                        <TextBlock Text="⚙️" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
 
                     <Border Background="#F1F5F9" CornerRadius="10" Padding="8,2" Margin="8,0,12,0" VerticalAlignment="Center">
                         <TextBlock Text="{Binding ContainersCountText}" FontSize="11" FontWeight="SemiBold" Foreground="#64748B"/>
