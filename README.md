@@ -78,6 +78,14 @@ Run the automated build script:
 
 ---
 
+## 📚 Guides & Documentation
+
+* 📖 [Remote Docker Management via Tailscale](docs/HANDLEIDING_EXTERNE_DOCKER_TAILSCALE.md) — Connect DockerManager to a remote Linux VPS / server over Tailscale using systemd overrides.
+* 🌐 [Hosting Local/Remote Stacks with Cloudflare Tunnel & NGINX](docs/HANDLEIDING_CLOUDFLARE_NGINX.md) — Expose containers under custom subdomains with zero port forwarding.
+* 🚀 [Hosting Stacks with Tailscale Funnel](docs/HANDLEIDING_LOKALE_STACK_TAILSCALE.md) — Quick public access via Tailscale Funnel.
+
+---
+
 ## 🤝 Contributing
 
 Contributions, bug reports, and feature requests are very welcome!
