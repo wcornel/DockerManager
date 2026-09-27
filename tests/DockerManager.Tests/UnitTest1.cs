@@ -88,6 +88,13 @@ public class DialogTests
                 var profSettingsVm = new ProfileSettingsViewModel(testProfile, new[] { testProfile }, sett, cred, cf, dock);
                 var profSettingsDlg = new ProfileSettingsDialog(profSettingsVm);
                 Assert.NotNull(profSettingsDlg);
+
+                // 11. PortConflictDialog
+                var portConflictVm = new PortConflictViewModel(dock, new[] { testProfile }, "TestProfile", "Lokale Docker Desktop", false);
+                var portConflictDlg = new PortConflictDialog(portConflictVm);
+                Assert.NotNull(portConflictDlg);
+                Assert.Equal("🖥️ Server: Lokale Docker Desktop", portConflictVm.ServerBadgeText);
+                Assert.Equal("📄 Profiel: TestProfile", portConflictVm.ProfileBadgeText);
             }
             catch (Exception ex)
             {
@@ -1094,6 +1101,45 @@ services:
         vm.Description = "Updated Desc";
         vm.EditingProfile = p2; // triggers commit to Profile1
         Assert.Equal("Updated Desc", p1.Description);
+    }
+
+    [Fact]
+    public void TestUnifiedSettings_ServerTabsAndProfiles()
+    {
+        var cred = new CredentialService();
+        var sett = new SettingsService(cred);
+        var prof = new GitHubProfileService(sett, cred);
+        var dock = new DockerService(sett, cred);
+        var cf = new CloudflareService(sett, cred);
+
+        var vm = new SettingsViewModel(sett, cred, prof, dock, cf);
+
+        // General tab should exist
+        Assert.NotNull(vm.GeneralTab);
+        Assert.Equal("⚙️ Algemeen", vm.GeneralTab.Header);
+        Assert.True(vm.Tabs.Count >= 2); // At least General + Default local server tab
+
+        // Server tab
+        var serverTabs = vm.Tabs.OfType<ServerSettingsTabViewModel>().ToList();
+        Assert.NotEmpty(serverTabs);
+        var firstServerTab = serverTabs[0];
+        Assert.NotEmpty(firstServerTab.Profiles);
+        Assert.NotNull(firstServerTab.SelectedProfile);
+
+        // Add a new server tab
+        vm.AddServerCommand.Execute(null);
+        var updatedServerTabs = vm.Tabs.OfType<ServerSettingsTabViewModel>().ToList();
+        Assert.Equal(serverTabs.Count + 1, updatedServerTabs.Count);
+
+        var newServerTab = updatedServerTabs.Last();
+        Assert.StartsWith("🖥️ Server", newServerTab.Header);
+        Assert.Single(newServerTab.Profiles);
+        Assert.Equal("Standaard", newServerTab.SelectedProfile?.Name);
+
+        // Add a profile to the new server tab
+        newServerTab.AddProfileCommand.Execute(null);
+        Assert.Equal(2, newServerTab.Profiles.Count);
+        Assert.Equal("Profiel 2", newServerTab.SelectedProfile?.Name);
     }
 }
 
