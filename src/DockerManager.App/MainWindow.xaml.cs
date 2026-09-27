@@ -311,9 +311,11 @@ public partial class MainWindow : Window
                 Owner = this
             };
 
-            if (dialog.ShowDialog() == true)
+            var result = dialog.ShowDialog();
+            _viewModel.RefreshAuthStatus();
+
+            if (result == true)
             {
-                _viewModel.RefreshAuthStatus();
                 _viewModel.LoadServersFromSettings();
                 // Settings changed: re-check docker status and refresh profiles
                 _ = _viewModel.CheckDockerStatusAsync();

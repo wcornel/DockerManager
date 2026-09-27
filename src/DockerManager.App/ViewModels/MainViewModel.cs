@@ -149,6 +149,7 @@ public partial class MainViewModel : ObservableObject
 
         ServiceCards.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ContainersCountText));
         LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
+        RefreshAuthStatus();
 
         _pollTimer = new DispatcherTimer
         {

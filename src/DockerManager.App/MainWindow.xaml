@@ -47,7 +47,8 @@
                 <MenuItem Header="{helpers:Loc Menu_CheckPorts}" Command="{Binding CheckPortConflictsCommand}"/>
                 <MenuItem Header="{helpers:Loc Menu_PruneDocker}" Command="{Binding PruneDockerCommand}"/>
             </MenuItem>
-            <MenuItem Header="{helpers:Loc Menu_Dockerize}">
+            <MenuItem Header="{helpers:Loc Menu_Dockerize}"
+                      Visibility="{Binding IsGitHubLoggedIn, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <MenuItem Header="{helpers:Loc Menu_PublishDotnet}" Click="PublishDotnetMenu_Click"/>
                 <MenuItem Header="{helpers:Loc Menu_PublishPython}" Click="PublishPythonMenu_Click"/>
             </MenuItem>
@@ -138,7 +139,8 @@
                     <Button Click="PublishDotnetMenu_Click" 
                             Width="36" Height="30" Margin="0,0,4,0" Padding="0"
                             Background="#FAF5FF" Foreground="#9333EA" BorderBrush="#E9D5FF" BorderThickness="1"
-                            Cursor="Hand" ToolTip="{helpers:Loc Toolbar_PublishTip}">
+                            Cursor="Hand" ToolTip="{helpers:Loc Toolbar_PublishTip}"
+                            Visibility="{Binding IsGitHubLoggedIn, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <TextBlock Text="📦" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Button>
 
