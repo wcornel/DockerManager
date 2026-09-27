@@ -71,6 +71,13 @@ public class BackupService : IBackupService
 
             var filesToBackup = new List<(string sourcePath, string entryPath)>();
             var baseDirs = GetBaseDirectories();
+            var server = _settingsService.Settings.GetActiveServer();
+            var isRemote = server.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase);
+
+            if (isRemote)
+            {
+                result.Warnings.Add($"Let op: '{server.Name}' is een externe VPS/server ({server.TcpUrl}). De fysieke bestanden staan op de externe host ({server.GetEffectiveVolumesRootPath()}) en kunnen niet rechtstreeks via het lokale bestandssysteem worden ingepakt. Deze back-up bevat de volledige profiel- en containerconfiguratie.");
+            }
 
             // Collect all files from volumes
             foreach (var service in profile.Services)
@@ -81,7 +88,7 @@ public class BackupService : IBackupService
                 {
                     if (string.IsNullOrWhiteSpace(vol.HostPath)) continue;
 
-                    var resolvedPath = ResolveHostPath(vol.HostPath, baseDirs);
+                    var resolvedPath = ResolveHostPath(vol.HostPath, profile, server, baseDirs);
                     var volFolderSafe = SanitizeEntryName(Path.GetFileName(vol.HostPath.TrimEnd('/', '\\')));
                     if (string.IsNullOrWhiteSpace(volFolderSafe)) volFolderSafe = "vol";
 
@@ -99,7 +106,7 @@ public class BackupService : IBackupService
                             filesToBackup.Add((f, $"{containerName}/{volFolderSafe}/{rel}"));
                         }
                     }
-                    else
+                    else if (!isRemote)
                     {
                         result.Warnings.Add($"Pad voor volume '{vol.HostPath}' ({containerName}) niet gevonden op host.");
                     }
@@ -206,6 +213,7 @@ public class BackupService : IBackupService
             }
 
             var baseDirs = GetBaseDirectories();
+            var server = _settingsService.Settings.GetActiveServer();
 
             using (var zipStream = new FileStream(sourceZipPath, FileMode.Open, FileAccess.Read, FileShare.Read))
             using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Read))
@@ -268,7 +276,7 @@ public class BackupService : IBackupService
 
                         if (vol != null)
                         {
-                            var resolvedHostPath = ResolveHostPath(vol.HostPath, baseDirs);
+                            var resolvedHostPath = ResolveHostPath(vol.HostPath, activeProfile, server, baseDirs);
                             if (File.Exists(resolvedHostPath) || (parts.Length == 3 && Path.HasExtension(resolvedHostPath) && !Directory.Exists(resolvedHostPath)))
                             {
                                 targetFilePath = resolvedHostPath;
@@ -280,14 +288,16 @@ public class BackupService : IBackupService
                         }
                         else
                         {
-                            var primaryDir = baseDirs.FirstOrDefault() ?? AppDomain.CurrentDomain.BaseDirectory;
-                            targetFilePath = Path.Combine(primaryDir, "volumes", containerName, relativePath.Replace('/', Path.DirectorySeparatorChar));
+                            var primaryDir = server.GetEffectiveVolumesRootPath();
+                            var sub = activeProfile.GetEffectiveVolumesSubfolder();
+                            targetFilePath = Path.Combine(primaryDir, sub, containerName, relativePath.Replace('/', Path.DirectorySeparatorChar));
                         }
                     }
                     else
                     {
-                        var primaryDir = baseDirs.FirstOrDefault() ?? AppDomain.CurrentDomain.BaseDirectory;
-                        targetFilePath = Path.Combine(primaryDir, "volumes", containerName, relativePath.Replace('/', Path.DirectorySeparatorChar));
+                        var primaryDir = server.GetEffectiveVolumesRootPath();
+                        var sub = activeProfile.GetEffectiveVolumesSubfolder();
+                        targetFilePath = Path.Combine(primaryDir, sub, containerName, relativePath.Replace('/', Path.DirectorySeparatorChar));
                     }
 
                     var parentDir = Path.GetDirectoryName(targetFilePath);
@@ -340,7 +350,7 @@ public class BackupService : IBackupService
         }.Where(d => !string.IsNullOrWhiteSpace(d) && Directory.Exists(d)).ToList();
     }
 
-    private static string ResolveHostPath(string hostPath, List<string> baseDirs)
+    private static string ResolveHostPath(string hostPath, ProfileModel profile, DockerServerEnvironment server, List<string> baseDirs)
     {
         if (Path.IsPathRooted(hostPath) && (File.Exists(hostPath) || Directory.Exists(hostPath)))
         {
@@ -348,8 +358,37 @@ public class BackupService : IBackupService
         }
 
         var clean = hostPath.TrimStart('.', '/', '\\');
+        if (clean.StartsWith("volumes\\", StringComparison.OrdinalIgnoreCase) || clean.StartsWith("volumes/", StringComparison.OrdinalIgnoreCase))
+        {
+            clean = clean[8..];
+        }
+
+        var serverRoot = server.GetEffectiveVolumesRootPath();
+        var profileSubfolder = profile.GetEffectiveVolumesSubfolder();
+
+        // 1. Check serverRoot / profileSubfolder / clean
+        var candidateWithProfile = Path.Combine(serverRoot, profileSubfolder, clean);
+        if (File.Exists(candidateWithProfile) || Directory.Exists(candidateWithProfile))
+        {
+            return candidateWithProfile;
+        }
+
+        // 2. Check serverRoot / clean
+        var candidateDirect = Path.Combine(serverRoot, clean);
+        if (File.Exists(candidateDirect) || Directory.Exists(candidateDirect))
+        {
+            return candidateDirect;
+        }
+
+        // 3. Check legacy baseDirs
         foreach (var dir in baseDirs)
         {
+            var combinedWithProfile = Path.Combine(dir, "volumes", profileSubfolder, clean);
+            if (File.Exists(combinedWithProfile) || Directory.Exists(combinedWithProfile))
+            {
+                return combinedWithProfile;
+            }
+
             var combined = Path.Combine(dir, clean);
             if (File.Exists(combined) || Directory.Exists(combined))
             {
@@ -357,12 +396,7 @@ public class BackupService : IBackupService
             }
         }
 
-        if (baseDirs.Count > 0)
-        {
-            return Path.Combine(baseDirs[0], clean);
-        }
-
-        return hostPath;
+        return candidateWithProfile;
     }
 
     private static string SanitizeEntryName(string name)

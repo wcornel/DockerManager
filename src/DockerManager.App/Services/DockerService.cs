@@ -533,17 +533,22 @@ public class DockerService : IDockerService
         return networkName;
     }
 
-    internal string ResolveVolumeHostPath(VolumeMapping volume, string profileName, string containerName)
+    internal string ResolveVolumeHostPath(VolumeMapping volume, string profileName, string containerName, string? profileVolumesSubfolder = null, DockerServerEnvironment? server = null)
     {
         if (volume.IsNamedVolume)
         {
             return volume.HostPath;
         }
 
-        var activeServer = _settingsService.Settings.GetActiveServer();
-        var isRemote = (activeServer != null && activeServer.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase)) ||
+        server ??= _settingsService.Settings.GetActiveServer();
+        var isRemote = (server != null && server.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase)) ||
                        _settingsService.Settings.DockerHostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase);
         var hostPath = volume.HostPath;
+
+        var subfolder = !string.IsNullOrWhiteSpace(profileVolumesSubfolder)
+            ? profileVolumesSubfolder.Trim().TrimStart('/', '\\').Replace('\\', '/')
+            : string.Join("", (profileName ?? "default").Where(char.IsLetterOrDigit)).ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(subfolder)) subfolder = "default";
 
         if (isRemote)
         {
@@ -553,17 +558,15 @@ public class DockerService : IDockerService
                 return hostPath.Replace('\\', '/');
             }
 
-            // Clean up relative path and map to a standard Linux volume path on the remote host
+            var rootPath = server != null ? server.GetEffectiveVolumesRootPath().Replace('\\', '/').TrimEnd('/') : "/var/lib/dockermanager/volumes";
             var cleanPath = hostPath.TrimStart('.', '/', '\\').Replace('\\', '/');
-            var safeProfile = string.Join("", profileName.Where(char.IsLetterOrDigit)).ToLowerInvariant();
-            if (string.IsNullOrWhiteSpace(safeProfile)) safeProfile = "default";
 
             if (cleanPath.StartsWith("volumes/", StringComparison.OrdinalIgnoreCase))
             {
                 cleanPath = cleanPath["volumes/".Length..];
             }
 
-            return $"/var/lib/dockermanager/volumes/{safeProfile}/{cleanPath}";
+            return $"{rootPath}/{subfolder}/{cleanPath}";
         }
 
         string fullHostPath;
@@ -574,17 +577,15 @@ public class DockerService : IDockerService
         }
         else
         {
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            var rootPath = server != null ? server.GetEffectiveVolumesRootPath() : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DockerManager", "volumes");
             var cleanPath = hostPath.TrimStart('.', '/', '\\');
 
-            if (cleanPath.StartsWith("volumes", StringComparison.OrdinalIgnoreCase))
+            if (cleanPath.StartsWith("volumes\\", StringComparison.OrdinalIgnoreCase) || cleanPath.StartsWith("volumes/", StringComparison.OrdinalIgnoreCase))
             {
-                fullHostPath = Path.GetFullPath(Path.Combine(baseDir, cleanPath));
+                cleanPath = cleanPath[8..];
             }
-            else
-            {
-                fullHostPath = Path.GetFullPath(Path.Combine(baseDir, "volumes", profileName.ToLowerInvariant(), cleanPath));
-            }
+
+            fullHostPath = Path.GetFullPath(Path.Combine(rootPath, subfolder, cleanPath));
         }
 
         try

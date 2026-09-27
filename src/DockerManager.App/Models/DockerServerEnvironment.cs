@@ -1,4 +1,4 @@
-﻿namespace DockerManager.App.Models;
+namespace DockerManager.App.Models;
 
 public class DockerServerEnvironment
 {
@@ -9,6 +9,23 @@ public class DockerServerEnvironment
     public string TcpUrl { get; set; } = "tcp://localhost:2375";
     public string ProfilesSubfolder { get; set; } = "local";
     public string LastActiveProfile { get; set; } = string.Empty;
+    public string VolumesRootPath { get; set; } = string.Empty;
+
+    public string GetEffectiveVolumesRootPath()
+    {
+        if (!string.IsNullOrWhiteSpace(VolumesRootPath))
+        {
+            return VolumesRootPath.Trim();
+        }
+
+        if (HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase))
+        {
+            return "/var/lib/dockermanager/volumes";
+        }
+
+        var appData = System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData);
+        return System.IO.Path.Combine(appData, "DockerManager", "volumes");
+    }
 
     public string GetEffectiveUri()
     {
@@ -31,7 +48,8 @@ public class DockerServerEnvironment
             PipeName = PipeName,
             TcpUrl = TcpUrl,
             ProfilesSubfolder = ProfilesSubfolder,
-            LastActiveProfile = LastActiveProfile
+            LastActiveProfile = LastActiveProfile,
+            VolumesRootPath = VolumesRootPath
         };
     }
 }
