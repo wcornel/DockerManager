@@ -126,6 +126,7 @@ public partial class SettingsViewModel : ObservableObject
             var sTab = new ServerSettingsTabViewModel(
                 server,
                 profs,
+                _settingsService,
                 _credentialService,
                 _cloudflareService,
                 _dockerService,
@@ -191,6 +192,7 @@ public partial class SettingsViewModel : ObservableObject
         var serverTab = new ServerSettingsTabViewModel(
             srv,
             new[] { defaultProfile },
+            _settingsService,
             _credentialService,
             _cloudflareService,
             _dockerService,

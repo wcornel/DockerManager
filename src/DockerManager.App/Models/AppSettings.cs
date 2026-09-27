@@ -70,7 +70,7 @@ public class AppSettings
             var localServer = new DockerServerEnvironment
             {
                 Id = "local",
-                Name = "🖥️ Lokale PC",
+                Name = "Lokale PC",
                 HostType = "Pipe",
                 PipeName = !string.IsNullOrWhiteSpace(DockerPipeName) ? DockerPipeName : "npipe://./pipe/docker_engine",
                 ProfilesSubfolder = "local"
@@ -79,7 +79,7 @@ public class AppSettings
             var vpsServer = new DockerServerEnvironment
             {
                 Id = "vps",
-                Name = "🌐 Externe VPS",
+                Name = "Externe VPS",
                 HostType = "Tcp",
                 TcpUrl = !string.IsNullOrWhiteSpace(DockerTcpUrl) ? DockerTcpUrl : "tcp://100.x.y.z:2375",
                 ProfilesSubfolder = "vps"
@@ -90,10 +90,56 @@ public class AppSettings
 
             ActiveServerId = isExistingTcp ? "vps" : "local";
         }
-        else if (string.IsNullOrWhiteSpace(ActiveServerId) || !Servers.Any(s => s.Id.Equals(ActiveServerId, StringComparison.OrdinalIgnoreCase)))
+        else
         {
-            ActiveServerId = Servers[0].Id;
+            // Clean up any legacy emoji in server names
+            foreach (var server in Servers)
+            {
+                if (!string.IsNullOrWhiteSpace(server.Name))
+                {
+                    server.Name = StripLeadingEmojis(server.Name);
+                    if (string.IsNullOrWhiteSpace(server.Name))
+                    {
+                        server.Name = "Server";
+                    }
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(ActiveServerId) || !Servers.Any(s => s.Id.Equals(ActiveServerId, StringComparison.OrdinalIgnoreCase)))
+            {
+                ActiveServerId = Servers[0].Id;
+            }
         }
+    }
+
+    public static string StripLeadingEmojis(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+        var clean = text.Trim();
+        while (clean.Length > 0)
+        {
+            if (char.IsWhiteSpace(clean[0]))
+            {
+                clean = clean.Substring(1).TrimStart();
+            }
+            else if (clean[0] == '\uFE0F')
+            {
+                clean = clean.Substring(1).TrimStart();
+            }
+            else if (clean.Length >= 2 && char.IsSurrogatePair(clean, 0))
+            {
+                clean = clean.Substring(2).TrimStart();
+            }
+            else if (clean[0] >= 0x2600 && clean[0] <= 0x27BF)
+            {
+                clean = clean.Substring(1).TrimStart();
+            }
+            else
+            {
+                break;
+            }
+        }
+        return clean;
     }
 
     public string GetEffectiveDockerUri()
