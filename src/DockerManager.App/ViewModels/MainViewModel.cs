@@ -124,6 +124,8 @@ public partial class MainViewModel : ObservableObject
     public event Action? RequestAddNewService;
     public event Action? RequestOpenSettings;
     public event Action? RequestOpenGitHubLogin;
+    public event Action<ProfileModel>? RequestOpenProfileSettings;
+    public event Func<ProfileModel, Task<bool>>? RequestConfirmDeleteProfile;
     public event Func<ProfileModel, Task>? RequestBackupVolumes;
     public event Func<Task>? RequestRestoreBackup;
     public event Action? RequestCheckPortConflicts;
@@ -343,13 +345,59 @@ public partial class MainViewModel : ObservableObject
 
         foreach (var svc in SelectedProfile.Services)
         {
-            var card = new ServiceCardViewModel(svc, SelectedProfile.Name, _dockerService, _settingsService);
+            var card = new ServiceCardViewModel(svc, SelectedProfile.Name, _dockerService, _settingsService, SelectedProfile);
             card.RequestOpenLogs += s => RequestOpenLogs?.Invoke(s);
             card.RequestEdit += s => RequestEditService?.Invoke(s);
             card.RequestDeleteFromProfile += OnDeleteServiceCard;
             card.RequestSaveProfile += () => _ = SaveCurrentProfileAsync();
             ServiceCards.Add(card);
         }
+    }
+
+    [RelayCommand]
+    private void OpenProfileSettings()
+    {
+        if (SelectedProfile == null) return;
+        RequestOpenProfileSettings?.Invoke(SelectedProfile);
+    }
+
+    [RelayCommand]
+    private async Task DeleteCurrentProfileAsync()
+    {
+        if (SelectedProfile == null) return;
+        if (RequestConfirmDeleteProfile != null)
+        {
+            var confirmed = await RequestConfirmDeleteProfile(SelectedProfile);
+            if (!confirmed) return;
+        }
+
+        var profileToDelete = SelectedProfile;
+        var subfolder = SelectedServer?.ProfilesSubfolder ?? _settingsService.Settings.GetActiveServer().ProfilesSubfolder;
+
+        foreach (var svc in profileToDelete.Services)
+        {
+            var cName = string.IsNullOrWhiteSpace(svc.ContainerName) ? svc.Id : svc.ContainerName;
+            try
+            {
+                await _dockerService.StopContainerAsync(cName);
+            }
+            catch { }
+        }
+
+        var baseDir = _settingsService.Settings.LocalProfilesFolder;
+        if (string.IsNullOrWhiteSpace(baseDir))
+        {
+            baseDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles");
+        }
+        var targetFile = Path.Combine(baseDir, subfolder, $"{profileToDelete.Name}.json");
+        if (File.Exists(targetFile))
+        {
+            try { File.Delete(targetFile); } catch { }
+        }
+
+        Profiles.Remove(profileToDelete);
+        SelectedProfile = Profiles.FirstOrDefault();
+        StatusNotification = $"🗑️ Profiel '{profileToDelete.Name}' is verwijderd.";
     }
 
     private void OnDeleteServiceCard(ServiceCardViewModel card)
@@ -375,11 +423,12 @@ public partial class MainViewModel : ObservableObject
                 $"Deze container heeft een actieve Cloudflare koppeling ({cleanHost}).\n\nWil je de Cloudflare verwijzing (DNS-record en tunnelkoppeling) ook direct verwijderen uit Cloudflare?",
                 "Cloudflare Verwijzing Verwijderen"))
             {
+                var cfConfig = SelectedProfile.Cloudflare;
                 _ = Task.Run(async () =>
                 {
                     try
                     {
-                        await _cloudflareService.UnregisterSubdomainAsync(cleanHost);
+                        await _cloudflareService.UnregisterSubdomainAsync(cleanHost, cfConfig);
                     }
                     catch { }
                 });

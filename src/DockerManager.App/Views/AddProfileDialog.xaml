@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:helpers="clr-namespace:DockerManager.App.Helpers"
         mc:Ignorable="d"
-        Title="{helpers:Loc AddProfile_Title}" Height="390" Width="520"
+        Title="{helpers:Loc AddProfile_Title}" Height="450" Width="520"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         Icon="pack://application:,,,/DockerManager.App;component/app.ico"
@@ -44,7 +44,11 @@
 
             <TextBlock Text="{helpers:Loc AddProfile_DescLabel}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
             <TextBox x:Name="DescriptionTextBox" 
-                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6" FontSize="13"/>
+                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6" FontSize="13" Margin="0,0,0,10"/>
+
+            <TextBlock Text="{helpers:Loc AddProfile_InheritLabel}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
+            <ComboBox x:Name="InheritSettingsComboBox" DisplayMemberPath="DisplayName"
+                      Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6" FontSize="12.5"/>
         </StackPanel>
 
         <!-- Buttons -->

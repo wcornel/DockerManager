@@ -50,6 +50,8 @@ public partial class MainWindow : Window
 
         _viewModel.RequestOpenSettings += ShowSettingsDialog;
         _viewModel.RequestOpenGitHubLogin += ShowGitHubLoginDialog;
+        _viewModel.RequestOpenProfileSettings += ShowProfileSettingsDialog;
+        _viewModel.RequestConfirmDeleteProfile += ConfirmDeleteProfileAsync;
         _viewModel.RequestOpenLogs += ShowLogViewerDialog;
         _viewModel.RequestEditService += ShowEditServiceDialog;
         _viewModel.RequestAddNewService += ShowAddServiceDialog;
@@ -93,7 +95,7 @@ public partial class MainWindow : Window
         try
         {
             var existingNames = _viewModel.Profiles.Select(p => p.Name);
-            var dialog = new AddProfileDialog(existingNames)
+            var dialog = new AddProfileDialog(existingNames, _viewModel.Profiles, _settingsService, _credentialService)
             {
                 Owner = this
             };
@@ -135,7 +137,8 @@ public partial class MainWindow : Window
                 _settingsService,
                 _credentialService,
                 _cloudflareService,
-                framework);
+                framework,
+                _viewModel.SelectedProfile);
 
             var dialog = new PublishDotnetAppDialog(publishVm)
             {
@@ -309,7 +312,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            var editVm = new EditServiceViewModel(cardVm.Service, _dockerService, _cloudflareService, _settingsService);
+            var editVm = new EditServiceViewModel(cardVm.Service, _dockerService, _cloudflareService, _settingsService, _viewModel.SelectedProfile);
             var dialog = new EditServiceDialog(editVm)
             {
                 Owner = this
@@ -356,7 +359,7 @@ public partial class MainWindow : Window
 
         try
         {
-            var editVm = new EditServiceViewModel(null, _dockerService, _cloudflareService, _settingsService);
+            var editVm = new EditServiceViewModel(null, _dockerService, _cloudflareService, _settingsService, _viewModel.SelectedProfile);
             var dialog = new EditServiceDialog(editVm)
             {
                 Owner = this
@@ -380,6 +383,47 @@ public partial class MainWindow : Window
         {
             MessageBox.Show($"Fout bij toevoegen van container: {ex.Message}", "Fout", MessageBoxButton.OK, MessageBoxImage.Error);
         }
+    }
+
+    private void ShowProfileSettingsDialog(ProfileModel profile)
+    {
+        try
+        {
+            var vm = new ProfileSettingsViewModel(
+                profile,
+                _viewModel.Profiles,
+                _settingsService,
+                _credentialService,
+                _cloudflareService,
+                _dockerService);
+
+            var dialog = new ProfileSettingsDialog(vm)
+            {
+                Owner = this
+            };
+
+            if (dialog.ShowDialog() == true)
+            {
+                _ = _viewModel.SaveCurrentProfileAsync();
+                _viewModel.RebuildServiceCards();
+                _viewModel.StatusNotification = $"💾 Instellingen voor profiel '{profile.Name}' succesvol opgeslagen!";
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Fout bij openen van profielinstellingen: {ex.Message}", "Fout", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private Task<bool> ConfirmDeleteProfileAsync(ProfileModel profile)
+    {
+        var result = MessageBox.Show(
+            $"Weet je zeker dat je profiel '{profile.Name}' definitief wilt verwijderen?\n\nDe actieve containers van dit profiel worden gestopt en het configuratiebestand wordt verwijderd.",
+            "Profiel Verwijderen",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        return Task.FromResult(result == MessageBoxResult.Yes);
     }
 
     private void ShowLogViewerDialog(ServiceCardViewModel cardVm)

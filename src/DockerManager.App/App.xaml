@@ -13,6 +13,7 @@
             <helpers:StringNullOrEmptyToVisibilityConverter x:Key="StringNullOrEmptyToVisibilityConverter"/>
             <helpers:CountToVisibilityConverter x:Key="CountToVisibilityConverter"/>
             <helpers:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
+            <helpers:InverseBooleanConverter x:Key="InverseBooleanConverter"/>
 
             <!-- App Global Styles (Windows Light / Fluent Theme) -->
             <Style TargetType="Button">

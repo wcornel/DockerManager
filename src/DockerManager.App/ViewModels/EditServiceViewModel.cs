@@ -237,19 +237,23 @@ public partial class EditServiceViewModel : ObservableObject
     private readonly Services.IDockerService? _dockerService;
     private readonly Services.ICloudflareService? _cloudflareService;
     private readonly Services.ISettingsService? _settingsService;
+    private readonly ProfileModel? _profile;
 
     public EditServiceViewModel(
         ServiceDefinition? existingService = null,
         Services.IDockerService? dockerService = null,
         Services.ICloudflareService? cloudflareService = null,
-        Services.ISettingsService? settingsService = null)
+        Services.ISettingsService? settingsService = null,
+        ProfileModel? profile = null)
     {
         _dockerService = dockerService;
         _cloudflareService = cloudflareService;
         _settingsService = settingsService;
+        _profile = profile;
 
-        _cloudflareDomain = _settingsService?.Settings.CloudflareDomain ?? string.Empty;
-        _hasCloudflareConfigured = _settingsService?.Settings.HasCloudflareConfigured ?? false;
+        var effDomain = _profile?.GetEffectiveCloudflareDomain(_settingsService?.Settings);
+        _cloudflareDomain = !string.IsNullOrWhiteSpace(effDomain) ? effDomain : (_settingsService?.Settings.CloudflareDomain ?? string.Empty);
+        _hasCloudflareConfigured = (_profile?.Cloudflare != null && _profile.Cloudflare.HasConfiguration) || (_settingsService?.Settings.HasCloudflareConfigured ?? false);
 
         if (existingService != null)
         {
@@ -406,7 +410,7 @@ public partial class EditServiceViewModel : ObservableObject
             var targetPort = SelectedCloudflarePort > 0 ? SelectedCloudflarePort : (Ports.FirstOrDefault()?.HostPort ?? 80);
             try
             {
-                var (ok, msg, fullHost) = await _cloudflareService.RegisterSubdomainAsync(CloudflareSubdomain.Trim(), targetPort);
+                var (ok, msg, fullHost) = await _cloudflareService.RegisterSubdomainAsync(CloudflareSubdomain.Trim(), targetPort, _profile?.Cloudflare);
                 if (ok && !string.IsNullOrWhiteSpace(fullHost))
                 {
                     EnsureCloudflaredInProfile = true;
@@ -422,7 +426,7 @@ public partial class EditServiceViewModel : ObservableObject
                                 $"De Cloudflare hostnaam is gewijzigd van '{cleanOriginal}' naar '{fullHost}'.\n\nWil je de oude Cloudflare verwijzing voor '{cleanOriginal}' direct verwijderen uit Cloudflare (DNS en tunnel)?",
                                 "Oude Cloudflare Verwijzing Verwijderen"))
                             {
-                                _ = await _cloudflareService.UnregisterSubdomainAsync(cleanOriginal);
+                                _ = await _cloudflareService.UnregisterSubdomainAsync(cleanOriginal, _profile?.Cloudflare);
                             }
                         }
                     }
@@ -451,7 +455,7 @@ public partial class EditServiceViewModel : ObservableObject
                 {
                     try
                     {
-                        var (delOk, delMsg) = await _cloudflareService.UnregisterSubdomainAsync(cleanOriginal);
+                        var (delOk, delMsg) = await _cloudflareService.UnregisterSubdomainAsync(cleanOriginal, _profile?.Cloudflare);
                         if (!delOk)
                         {
                             CloudflareStatusMessage = $"⚠️ {delMsg}";

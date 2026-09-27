@@ -49,6 +49,11 @@ public class DockerComposeExporterService : IDockerComposeExporterService
                 svcConfig["restart"] = svc.RestartPolicy;
             }
 
+            if (!string.IsNullOrWhiteSpace(svc.NetworkMode))
+            {
+                svcConfig["network_mode"] = svc.NetworkMode;
+            }
+
             // Ports
             if (svc.Ports != null && svc.Ports.Count > 0)
             {
@@ -124,6 +129,15 @@ public class DockerComposeExporterService : IDockerComposeExporterService
         if (!string.IsNullOrWhiteSpace(profile.Description))
         {
             header.AppendLine($"# Description: {profile.Description}");
+        }
+        if (!string.IsNullOrWhiteSpace(profile.Cloudflare?.Domain))
+        {
+            header.AppendLine($"# Cloudflare Domain: {profile.Cloudflare.Domain}");
+        }
+        if (!string.IsNullOrWhiteSpace(profile.Registry?.Server) || !string.IsNullOrWhiteSpace(profile.Registry?.Namespace))
+        {
+            var reg = string.Join("/", new[] { profile.Registry?.Server, profile.Registry?.Namespace }.Where(s => !string.IsNullOrWhiteSpace(s)));
+            header.AppendLine($"# Container Registry: {reg}");
         }
         header.AppendLine($"# Generated on: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
         header.AppendLine();

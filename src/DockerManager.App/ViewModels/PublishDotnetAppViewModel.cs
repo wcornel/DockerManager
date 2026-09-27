@@ -15,6 +15,7 @@ public partial class PublishDotnetAppViewModel : ObservableObject
     private readonly ISettingsService _settingsService;
     private readonly ICredentialService _credentialService;
     private readonly ICloudflareService _cloudflareService;
+    private readonly ProfileModel? _profile;
 
     [ObservableProperty]
     private bool _enableCloudflareTunnel = true;
@@ -219,7 +220,8 @@ public partial class PublishDotnetAppViewModel : ObservableObject
         ISettingsService settingsService,
         ICredentialService credentialService,
         ICloudflareService cloudflareService,
-        AppFrameworkType framework = AppFrameworkType.Dotnet)
+        AppFrameworkType framework = AppFrameworkType.Dotnet,
+        ProfileModel? profile = null)
     {
         _dotnetScanner = dotnetScanner;
         _pythonScanner = pythonScanner;
@@ -228,14 +230,21 @@ public partial class PublishDotnetAppViewModel : ObservableObject
         _credentialService = credentialService;
         _cloudflareService = cloudflareService;
         Framework = framework;
+        _profile = profile;
+
         var s = _settingsService.Settings;
-        TargetGitHubOwner = !string.IsNullOrWhiteSpace(s.LoggedInUsername) ? s.LoggedInUsername : s.GitHubRepoOwner;
+        var regNamespace = !string.IsNullOrWhiteSpace(_profile?.Registry?.Namespace)
+            ? _profile.Registry.Namespace
+            : (!string.IsNullOrWhiteSpace(s.LoggedInUsername) ? s.LoggedInUsername : s.GitHubRepoOwner);
+
+        TargetGitHubOwner = regNamespace;
         TargetGitHubRepo = string.IsNullOrWhiteSpace(s.GitHubDeployRepo) ? "DotnetContainers" : s.GitHubDeployRepo;
         GitHubBranch = string.IsNullOrWhiteSpace(s.GitHubBranch) ? "main" : s.GitHubBranch;
 
-        CloudflareDomain = s.CloudflareDomain;
-        HasCloudflareConfigured = s.HasCloudflareConfigured;
-        EnableCloudflareTunnel = s.HasCloudflareConfigured;
+        var effDomain = _profile?.GetEffectiveCloudflareDomain(s);
+        CloudflareDomain = !string.IsNullOrWhiteSpace(effDomain) ? effDomain : s.CloudflareDomain;
+        HasCloudflareConfigured = (_profile?.Cloudflare != null && _profile.Cloudflare.HasConfiguration) || s.HasCloudflareConfigured;
+        EnableCloudflareTunnel = HasCloudflareConfigured;
 
         if (IsPython)
         {
@@ -523,7 +532,7 @@ public partial class PublishDotnetAppViewModel : ObservableObject
                         progress?.Report($"☁️ Subdomein '{CloudflareSubdomain}' registreren in Cloudflare Tunnel...");
                         try
                         {
-                            var (cfOk, cfMsg, fullHost) = await _cloudflareService.RegisterSubdomainAsync(CloudflareSubdomain, ContainerPort);
+                            var (cfOk, cfMsg, fullHost) = await _cloudflareService.RegisterSubdomainAsync(CloudflareSubdomain, ContainerPort, _profile?.Cloudflare);
                             if (cfOk && !string.IsNullOrWhiteSpace(fullHost))
                             {
                                 EnsureCloudflaredInProfile = true;

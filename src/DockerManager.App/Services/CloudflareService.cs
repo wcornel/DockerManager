@@ -67,10 +67,12 @@ public interface ICloudflareService
     Task<(bool Success, string Message, string? FullHostname)> RegisterSubdomainAsync(
         string subdomain,
         int hostPort,
+        ProfileCloudflareConfig? profileConfig = null,
         CancellationToken ct = default);
 
     Task<(bool Success, string Message)> UnregisterSubdomainAsync(
         string hostname,
+        ProfileCloudflareConfig? profileConfig = null,
         CancellationToken ct = default);
 
     bool EnsureCloudflaredServiceInProfile(ProfileModel profile, string? customTunnelToken = null);
@@ -439,22 +441,31 @@ public class CloudflareService : ICloudflareService
     public async Task<(bool Success, string Message, string? FullHostname)> RegisterSubdomainAsync(
         string subdomain,
         int hostPort,
+        ProfileCloudflareConfig? profileConfig = null,
         CancellationToken ct = default)
     {
         var settings = _settingsService.Settings;
-        var token = _credentialService.GetCloudflareApiToken();
-        var accountId = settings.CloudflareAccountId.Trim();
-        var tunnelId = settings.CloudflareTunnelId.Trim();
-        var domain = settings.CloudflareDomain.Trim().ToLowerInvariant();
+        var token = !string.IsNullOrWhiteSpace(profileConfig?.ApiToken)
+            ? profileConfig.ApiToken.Trim()
+            : _credentialService.GetCloudflareApiToken();
+        var accountId = !string.IsNullOrWhiteSpace(profileConfig?.AccountId)
+            ? profileConfig.AccountId.Trim()
+            : settings.CloudflareAccountId.Trim();
+        var tunnelId = !string.IsNullOrWhiteSpace(profileConfig?.TunnelId)
+            ? profileConfig.TunnelId.Trim()
+            : settings.CloudflareTunnelId.Trim();
+        var domain = !string.IsNullOrWhiteSpace(profileConfig?.Domain)
+            ? profileConfig.Domain.Trim().TrimStart('.').ToLowerInvariant()
+            : settings.CloudflareDomain.Trim().TrimStart('.').ToLowerInvariant();
 
         if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(accountId) || string.IsNullOrWhiteSpace(tunnelId))
         {
-            return (false, "Cloudflare API Token, Account ID of Tunnel ID ontbreekt in Instellingen.", null);
+            return (false, "Cloudflare API Token, Account ID of Tunnel ID ontbreekt in profiel- of app-instellingen.", null);
         }
 
         if (string.IsNullOrWhiteSpace(domain))
         {
-            return (false, "Cloudflare domeinnaam ontbreekt in Instellingen (bijv. jouwdomein.nl).", null);
+            return (false, "Cloudflare domeinnaam ontbreekt in profiel- of app-instellingen (bijv. jouwdomein.nl).", null);
         }
 
         var cleanSub = subdomain.Trim().ToLowerInvariant();
@@ -610,6 +621,7 @@ public class CloudflareService : ICloudflareService
 
     public async Task<(bool Success, string Message)> UnregisterSubdomainAsync(
         string hostname,
+        ProfileCloudflareConfig? profileConfig = null,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(hostname))
@@ -618,14 +630,22 @@ public class CloudflareService : ICloudflareService
         }
 
         var settings = _settingsService.Settings;
-        var token = _credentialService.GetCloudflareApiToken();
-        var accountId = settings.CloudflareAccountId.Trim();
-        var tunnelId = settings.CloudflareTunnelId.Trim();
-        var domain = settings.CloudflareDomain.Trim().ToLowerInvariant();
+        var token = !string.IsNullOrWhiteSpace(profileConfig?.ApiToken)
+            ? profileConfig.ApiToken.Trim()
+            : _credentialService.GetCloudflareApiToken();
+        var accountId = !string.IsNullOrWhiteSpace(profileConfig?.AccountId)
+            ? profileConfig.AccountId.Trim()
+            : settings.CloudflareAccountId.Trim();
+        var tunnelId = !string.IsNullOrWhiteSpace(profileConfig?.TunnelId)
+            ? profileConfig.TunnelId.Trim()
+            : settings.CloudflareTunnelId.Trim();
+        var domain = !string.IsNullOrWhiteSpace(profileConfig?.Domain)
+            ? profileConfig.Domain.Trim().TrimStart('.').ToLowerInvariant()
+            : settings.CloudflareDomain.Trim().TrimStart('.').ToLowerInvariant();
 
         if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(accountId) || string.IsNullOrWhiteSpace(tunnelId))
         {
-            return (false, "Cloudflare API Token, Account ID of Tunnel ID ontbreekt in Instellingen.");
+            return (false, "Cloudflare API Token, Account ID of Tunnel ID ontbreekt in profiel- of app-instellingen.");
         }
 
         var clean = hostname.Trim().ToLowerInvariant();
@@ -766,6 +786,10 @@ public class CloudflareService : ICloudflareService
         if (profile == null) return false;
 
         var token = customTunnelToken;
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            token = profile.Cloudflare?.TunnelToken;
+        }
         if (string.IsNullOrWhiteSpace(token))
         {
             token = _settingsService.Settings.CloudflareTunnelToken;

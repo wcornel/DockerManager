@@ -78,6 +78,16 @@ public class DialogTests
                 importDlg.Show();
                 importDlg.UpdateLayout();
                 Assert.NotNull(importDlg);
+
+                // 9. AddProfileDialog
+                var addProfileDlg = new AddProfileDialog(new[] { "Existing" }, new List<ProfileModel>(), sett, cred);
+                Assert.NotNull(addProfileDlg);
+
+                // 10. ProfileSettingsDialog
+                var testProfile = new ProfileModel { Name = "TestProfile" };
+                var profSettingsVm = new ProfileSettingsViewModel(testProfile, new[] { testProfile }, sett, cred, cf, dock);
+                var profSettingsDlg = new ProfileSettingsDialog(profSettingsVm);
+                Assert.NotNull(profSettingsDlg);
             }
             catch (Exception ex)
             {
@@ -932,6 +942,105 @@ services:
         {
             try { Directory.Delete(tempDir, true); } catch { }
         }
+    }
+
+    [Fact]
+    public void TestProfile_CloudflareAndRegistryConfig_SerializationAndInheritance()
+    {
+        var cred = new CredentialService();
+        var sett = new SettingsService(cred);
+        var cf = new CloudflareService(sett, cred);
+        var dock = new DockerService(sett, cred);
+
+        // 1. Setup global settings
+        sett.Settings.CloudflareAccountId = "global_acc_123";
+        sett.Settings.CloudflareTunnelId = "global_tunnel_456";
+        sett.Settings.CloudflareDomain = "globaldomain.com";
+        sett.Settings.LoggedInUsername = "globaluser";
+
+        // 2. Profile with empty/default config falls back to global domain
+        var emptyProfile = new ProfileModel { Name = "EmptyProfile" };
+        Assert.Equal("globaldomain.com", emptyProfile.GetEffectiveCloudflareDomain(sett.Settings));
+
+        // 3. Profile with custom domain overrides global domain
+        var customProfile = new ProfileModel
+        {
+            Name = "CustomProfile",
+            Cloudflare = new ProfileCloudflareConfig
+            {
+                AccountId = "cust_acc",
+                TunnelId = "cust_tun",
+                Domain = "customdomain.nl",
+                ApiToken = "cust_token"
+            },
+            Registry = new ProfileRegistryConfig
+            {
+                Server = "docker.io",
+                Namespace = "customorg"
+            }
+        };
+        Assert.Equal("customdomain.nl", customProfile.GetEffectiveCloudflareDomain(sett.Settings));
+        Assert.True(customProfile.Cloudflare.HasConfiguration);
+        Assert.True(customProfile.Registry.HasConfiguration);
+
+        // 4. Test ProfileSettingsViewModel Copy From Global Defaults
+        var targetProfile = new ProfileModel { Name = "NewProfile" };
+        var vm = new ProfileSettingsViewModel(targetProfile, new[] { customProfile }, sett, cred, cf, dock);
+
+        // Verify global copy source is present and works
+        var globalSource = vm.CopySources.First(s => s.IsGlobalDefaults);
+        vm.SelectedCopySource = globalSource;
+        vm.CopyAllSettingsCommand.Execute(null);
+
+        Assert.Equal("global_acc_123", vm.CloudflareAccountId);
+        Assert.Equal("globaldomain.com", vm.CloudflareDomain);
+        Assert.Equal("globaluser", vm.RegistryNamespace);
+
+        // 5. Test Copy From Another Profile
+        var profileSource = vm.CopySources.First(s => !s.IsGlobalDefaults && s.SourceProfile?.Name == "CustomProfile");
+        vm.SelectedCopySource = profileSource;
+        vm.CopyAllSettingsCommand.Execute(null);
+
+        Assert.Equal("cust_acc", vm.CloudflareAccountId);
+        Assert.Equal("customdomain.nl", vm.CloudflareDomain);
+        Assert.Equal("docker.io", vm.RegistryServer);
+        Assert.Equal("customorg", vm.RegistryNamespace);
+
+        // 6. Test Save
+        vm.SaveCommand.Execute(null);
+        Assert.True(vm.IsSaved);
+        Assert.Equal("customdomain.nl", targetProfile.Cloudflare.Domain);
+        Assert.Equal("customorg", targetProfile.Registry.Namespace);
+    }
+
+    [Fact]
+    public void TestDockerComposeExporter_IncludesNetworkModeAndProfileMetadata()
+    {
+        var exporter = new DockerComposeExporterService();
+        var profile = new ProfileModel
+        {
+            Name = "Production Stack",
+            Description = "Production containers for client",
+            Cloudflare = new ProfileCloudflareConfig { Domain = "production-app.nl" },
+            Registry = new ProfileRegistryConfig { Server = "ghcr.io", Namespace = "mycompany" },
+            Services =
+            {
+                new ServiceDefinition
+                {
+                    Id = "tunnel",
+                    Image = "cloudflare/cloudflared:latest",
+                    NetworkMode = "host",
+                    Command = new List<string> { "tunnel", "run" }
+                }
+            }
+        };
+
+        var yaml = exporter.ExportToComposeYaml(profile);
+
+        Assert.Contains("# Profile: Production Stack", yaml);
+        Assert.Contains("# Cloudflare Domain: production-app.nl", yaml);
+        Assert.Contains("# Container Registry: ghcr.io/mycompany", yaml);
+        Assert.Contains("network_mode: host", yaml);
     }
 }
 
