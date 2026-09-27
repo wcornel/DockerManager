@@ -13,6 +13,7 @@ public interface IGitHubProfileService
     Task<(bool Success, string Message)> TestGitHubConnectionAsync(string? overrideToken = null, CancellationToken ct = default);
     Task SaveProfileLocallyAsync(ProfileModel profile, CancellationToken ct = default);
     Task SaveProfileLocallyAsync(ProfileModel profile, string? subfolder, CancellationToken ct = default);
+    Task DeleteProfileLocallyAsync(string profileName, string? subfolder = null, CancellationToken ct = default);
     Task EnsureSubfoldersAndMigrateAsync(IEnumerable<DockerServerEnvironment> servers, CancellationToken ct = default);
 }
 
@@ -128,6 +129,46 @@ public class GitHubProfileService : IGitHubProfileService
         var filePath = Path.Combine(targetDir, $"{safeName}.json");
         var json = JsonSerializer.Serialize(profile, JsonOptions);
         await File.WriteAllTextAsync(filePath, json, ct);
+    }
+
+    public Task DeleteProfileLocallyAsync(string profileName, string? subfolder = null, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(profileName)) return Task.CompletedTask;
+
+        var localDir = _settingsService.Settings.LocalProfilesFolder;
+        if (string.IsNullOrWhiteSpace(localDir))
+        {
+            localDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles");
+        }
+
+        if (string.IsNullOrWhiteSpace(subfolder))
+        {
+            subfolder = _settingsService.Settings.GetActiveServer().ProfilesSubfolder;
+        }
+
+        var targetDir = Path.Combine(localDir, subfolder);
+        if (!Directory.Exists(targetDir)) return Task.CompletedTask;
+
+        var safeName = string.Join("_", profileName.Split(Path.GetInvalidFileNameChars())).ToLowerInvariant();
+        var candidates = new[]
+        {
+            Path.Combine(targetDir, $"{safeName}.json"),
+            Path.Combine(targetDir, $"{profileName}.json")
+        };
+
+        foreach (var file in candidates.Distinct())
+        {
+            if (File.Exists(file))
+            {
+                try
+                {
+                    File.Delete(file);
+                }
+                catch { }
+            }
+        }
+
+        return Task.CompletedTask;
     }
 
     public async Task<(bool Success, string Message)> TestGitHubConnectionAsync(string? overrideToken = null, CancellationToken ct = default)

@@ -385,7 +385,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ShowProfileSettingsDialog(ProfileModel profile)
+    private async void ShowProfileSettingsDialog(ProfileModel profile)
     {
         try
         {
@@ -404,7 +404,20 @@ public partial class MainWindow : Window
 
             if (dialog.ShowDialog() == true)
             {
-                _ = _viewModel.SaveCurrentProfileAsync();
+                if (!string.Equals(vm.OriginalName, profile.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    var subfolder = _viewModel.SelectedServer?.ProfilesSubfolder ?? _settingsService.Settings.GetActiveServer().ProfilesSubfolder;
+                    await _gitHubProfileService.DeleteProfileLocallyAsync(vm.OriginalName, subfolder);
+
+                    if (_viewModel.SelectedServer != null)
+                    {
+                        _viewModel.SelectedServer.LastActiveProfile = profile.Name;
+                    }
+                    _settingsService.Settings.LastActiveProfile = profile.Name;
+                    _settingsService.Save();
+                }
+
+                await _viewModel.SaveCurrentProfileAsync();
                 _viewModel.RebuildServiceCards();
                 _viewModel.StatusNotification = $"💾 Instellingen voor profiel '{profile.Name}' succesvol opgeslagen!";
             }

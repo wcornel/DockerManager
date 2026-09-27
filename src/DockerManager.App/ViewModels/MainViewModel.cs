@@ -384,16 +384,7 @@ public partial class MainViewModel : ObservableObject
             catch { }
         }
 
-        var baseDir = _settingsService.Settings.LocalProfilesFolder;
-        if (string.IsNullOrWhiteSpace(baseDir))
-        {
-            baseDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles");
-        }
-        var targetFile = Path.Combine(baseDir, subfolder, $"{profileToDelete.Name}.json");
-        if (File.Exists(targetFile))
-        {
-            try { File.Delete(targetFile); } catch { }
-        }
+        await _gitHubProfileService.DeleteProfileLocallyAsync(profileToDelete.Name, subfolder);
 
         Profiles.Remove(profileToDelete);
         SelectedProfile = Profiles.FirstOrDefault();

@@ -6,7 +6,7 @@
         xmlns:vm="clr-namespace:DockerManager.App.ViewModels"
         xmlns:helpers="clr-namespace:DockerManager.App.Helpers"
         mc:Ignorable="d"
-        Title="{helpers:Loc Settings_Title}" Height="700" Width="660"
+        Title="{helpers:Loc Settings_Title}" Height="640" Width="660"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         Icon="pack://application:,,,/DockerManager.App;component/app.ico"
@@ -116,225 +116,75 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Section 2: Container Registries (ghcr.io, Azure ACR, GitLab, Docker Hub, etc.) -->
+                <!-- Section 2: GitHub Account & Authenticatie -->
                 <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,16">
                     <StackPanel>
                         <DockPanel Margin="0,0,0,6">
-                            <TextBlock Text="{helpers:Loc Settings_Registries}" FontSize="15" FontWeight="SemiBold" Foreground="#0284C7" DockPanel.Dock="Left"/>
+                            <TextBlock Text="{helpers:Loc Settings_GitHubSection}" FontSize="15" FontWeight="SemiBold" Foreground="#4F46E5" DockPanel.Dock="Left"/>
                             <TextBlock Text="{helpers:Loc Settings_RegistriesDpapi}" FontSize="11" Foreground="#16A34A" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                         </DockPanel>
-                        <TextBlock Text="{helpers:Loc Settings_RegistriesDesc}" 
+                        <TextBlock Text="{helpers:Loc Settings_GitHubDesc}" 
                                    FontSize="12" Foreground="#64748B" TextWrapping="Wrap" Margin="0,0,0,12"/>
 
-                        <!-- Lijst van registries -->
-                        <ItemsControl ItemsSource="{Binding Registries}" Margin="0,0,0,12">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="12,8" Margin="0,0,0,8">
-                                        <DockPanel LastChildFill="True">
-                                            <!-- Knoppen Rechts -->
-                                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
-                                                <!-- GitHub Inloggen / Instellingen Knop (voor ghcr.io) -->
-                                                <Button Command="{Binding DataContext.ConfigureRegistryCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                        CommandParameter="{Binding}"
-                                                        Visibility="{Binding IsGitHubRegistry, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                                        Padding="10,4" Margin="0,0,6,0" Cursor="Hand" BorderThickness="1">
-                                                    <Button.Style>
-                                                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                                            <Setter Property="Background" Value="#EEF2FF"/>
-                                                            <Setter Property="Foreground" Value="#4F46E5"/>
-                                                            <Setter Property="BorderBrush" Value="#C7D2FE"/>
-                                                            <Setter Property="Content" Value="⚙️ Instellingen"/>
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding IsConfigured}" Value="False">
-                                                                    <Setter Property="Background" Value="#4F46E5"/>
-                                                                    <Setter Property="Foreground" Value="#FFFFFF"/>
-                                                                    <Setter Property="BorderThickness" Value="0"/>
-                                                                    <Setter Property="Content" Value="🔑 Inloggen via GitHub"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </Button.Style>
-                                                </Button>
+                        <!-- Ingelogd status card -->
+                        <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="12,10" Margin="0,0,0,12">
+                            <DockPanel LastChildFill="True">
+                                <!-- Knoppen Rechts -->
+                                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
+                                    <Button Content="{helpers:Loc Settings_GitHubLoginBtn}" Command="{Binding OpenGitHubLoginCommand}"
+                                            Padding="12,6" Background="#4F46E5" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" FontWeight="SemiBold"
+                                            Visibility="{Binding IsLoggedIn, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
+                                    <Button Content="{helpers:Loc Settings_GitHubLogoutBtn}" Command="{Binding LogoutGitHubCommand}"
+                                            Padding="10,5" Background="#FEE2E2" Foreground="#DC2626" BorderBrush="#FECACA" BorderThickness="1" Cursor="Hand"
+                                            Visibility="{Binding IsLoggedIn, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                </StackPanel>
 
-                                                <!-- Test Knopje -->
-                                                <Button Content="🔍 Test" Command="{Binding DataContext.TestRegistryCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                        CommandParameter="{Binding}" Padding="8,4" Margin="0,0,6,0" Background="#F0FDF4" Foreground="#16A34A" BorderBrush="#BBF7D0" BorderThickness="1" Cursor="Hand" ToolTip="Test verbinding en authenticatie"/>
-
-                                                <!-- Verwijderen of Uitloggen -->
-                                                <Button Content="🗑️" Command="{Binding DataContext.DeleteRegistryCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                        CommandParameter="{Binding}" Padding="8,4" Background="#FEE2E2" Foreground="#DC2626" BorderThickness="0" Cursor="Hand" ToolTip="Registry verwijderen of uitloggen"
-                                                        Visibility="{Binding IsConfigured, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                                            </StackPanel>
-
-                                            <!-- Registry Info Links -->
-                                            <StackPanel Orientation="Vertical" VerticalAlignment="Center">
-                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                                    <TextBlock Text="🌐 " FontSize="12"/>
-                                                    <TextBlock Text="{Binding ServerAddress}" FontWeight="Bold" Foreground="#0F172A" FontSize="13" Margin="0,0,8,0"/>
-
-                                                    <!-- Ingelogd / Geconfigureerd Badge -->
-                                                    <Border Background="#DCFCE7" CornerRadius="4" Padding="6,2" Margin="0,0,6,0"
-                                                            Visibility="{Binding IsConfigured, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                        <TextBlock Text="{Binding Username, StringFormat='👤 {0}'}" Foreground="#15803D" FontSize="11" FontWeight="SemiBold"/>
-                                                    </Border>
-
-                                                    <!-- Niet gekoppeld Badge (bijv. ghcr.io) -->
-                                                    <Border Background="#F1F5F9" CornerRadius="4" Padding="6,2" Margin="0,0,6,0"
-                                                            Visibility="{Binding IsConfigured, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
-                                                        <TextBlock Text="Niet gekoppeld (optioneel)" Foreground="#64748B" FontSize="11"/>
-                                                    </Border>
-                                                </StackPanel>
-                                                <TextBlock Text="{Binding DisplayName}" Foreground="#64748B" FontSize="11" Margin="18,2,0,0"/>
-                                            </StackPanel>
-                                        </DockPanel>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-
-                        <!-- Registry Test Status Feedback -->
-                        <TextBlock Text="{Binding RegistryTestStatus}" FontSize="11.5" FontWeight="SemiBold" Foreground="#0284C7" Margin="0,0,0,8"
-                                   Visibility="{Binding RegistryTestStatus, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"/>
-
-                        <!-- Nieuwe Registry Toevoegen -->
-                        <Border Background="#F1F5F9" CornerRadius="6" Padding="10">
-                            <StackPanel>
-                                <TextBlock Text="{helpers:Loc Settings_AddExtraRegistry}" FontWeight="SemiBold" FontSize="12" Foreground="#334155" Margin="0,0,0,8"/>
-                                <Grid Margin="0,0,0,6">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="8"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="8"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="8"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBox Grid.Column="0" Text="{Binding NewRegistryServer, UpdateSourceTrigger=PropertyChanged}" 
-                                             Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4" ToolTip="Server URL (bijv. mijn.azurecr.io, registry.gitlab.com, docker.io)"/>
-                                    <TextBox Grid.Column="2" Text="{Binding NewRegistryUsername, UpdateSourceTrigger=PropertyChanged}" 
-                                             Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4" ToolTip="Gebruikersnaam of Client ID"/>
-                                    <TextBox Grid.Column="4" Text="{Binding NewRegistryPassword, UpdateSourceTrigger=PropertyChanged}" 
-                                             Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4" ToolTip="Token, Wachtwoord of Client Secret"/>
-                                    <Button Grid.Column="6" Content="{helpers:Loc Settings_AddBtn}" Command="{Binding AddCustomRegistryCommand}" 
-                                            Padding="10,4" Background="#0284C7" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
-                                </Grid>
-                                <TextBlock Text="{helpers:Loc Settings_AddRegistryHelp}" FontSize="11" Foreground="#64748B"/>
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
-                </Border>
-
-                <!-- Section 3: Cloudflare Tunnel Integratie (Optioneel voor publieke HTTPS toegang) -->
-                <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,16">
-                    <StackPanel>
-                        <DockPanel Margin="0,0,0,6">
-                            <TextBlock Text="{helpers:Loc Settings_CloudflareHeader}" FontSize="15" FontWeight="SemiBold" Foreground="#EA580C" DockPanel.Dock="Left"/>
-                            <TextBlock Text="{helpers:Loc Settings_RegistriesDpapi}" FontSize="11" Foreground="#16A34A" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                        </DockPanel>
-                        <TextBlock Text="{helpers:Loc Settings_CloudflareDesc}" 
-                                   FontSize="12" Foreground="#64748B" TextWrapping="Wrap" Margin="0,0,0,12"/>
-
-                        <!-- Cloudflare API Token -->
-                        <Grid Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="160"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Cloudflare API Token:" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#334155" FontSize="12"/>
-                            <TextBox Grid.Column="1" Text="{Binding CloudflareApiToken, UpdateSourceTrigger=PropertyChanged}" 
-                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,5" ToolTip="API Token met rechten: Zone.DNS:Edit en Account.Cloudflare Tunnel:Edit"/>
-                        </Grid>
-
-                        <!-- Account ID -->
-                        <Grid Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="160"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Account ID:" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#334155" FontSize="12"/>
-                            <TextBox Grid.Column="1" Text="{Binding CloudflareAccountId, UpdateSourceTrigger=PropertyChanged}" 
-                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,5" ToolTip="Cloudflare Account ID (te vinden in de browser URL of dashboard)"/>
-                            <Button Grid.Column="2" Content="{helpers:Loc Settings_FetchTunnels}" Command="{Binding LoadCloudflareTunnelsCommand}"
-                                    Margin="8,0,0,0" Padding="12,5" Background="#0284C7" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"
-                                    ToolTip="Haalt automatisch alle bestaande tunnels op uit je Cloudflare account"/>
-                        </Grid>
-
-                        <!-- Tunnel Selectie & Beheer -->
-                        <Grid Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="160"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="{helpers:Loc Settings_ActiveTunnel}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#334155" FontSize="12"/>
-                            <ComboBox Grid.Column="1" ItemsSource="{Binding AvailableTunnels}" SelectedItem="{Binding SelectedTunnel}"
-                                      DisplayMemberPath="DisplayName" Padding="8,6" Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1"
-                                      ToolTip="Selecteer een tunnel uit je Cloudflare account"/>
-                            <Button Grid.Column="2" Content="{helpers:Loc Settings_NewTunnel}" Command="{Binding ToggleCreateTunnelBoxCommand}"
-                                    Margin="8,0,0,0" Padding="10,5" Background="#16A34A" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"
-                                    ToolTip="Maak direct een nieuwe, geïsoleerde tunnel aan via de Cloudflare API"/>
-                            <Button Grid.Column="3" Content="🗑️" Command="{Binding DeleteTunnelCommand}"
-                                    Margin="6,0,0,0" Padding="10,5" Background="#FEE2E2" Foreground="#DC2626" BorderBrush="#FCA5A5" BorderThickness="1" FontWeight="Bold" Cursor="Hand"
-                                    ToolTip="Verwijder de geselecteerde tunnel uit Cloudflare"/>
-                        </Grid>
-
-                        <!-- Create Tunnel Form Box -->
-                        <Border Background="#F0FDF4" BorderBrush="#BBF7D0" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,8"
-                                Visibility="{Binding ShowCreateTunnelBox, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <StackPanel>
-                                <TextBlock Text="{helpers:Loc Settings_CreateTunnelHeader}" FontWeight="Bold" FontSize="11.5" Foreground="#166534" Margin="0,0,0,4"/>
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBox Grid.Column="0" Text="{Binding NewTunnelName, UpdateSourceTrigger=PropertyChanged}"
-                                             Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4"/>
-                                    <Button Grid.Column="1" Content="{helpers:Loc Settings_CreateInCloudflare}" Command="{Binding CreateTunnelConfirmCommand}"
-                                            Margin="6,0,0,0" Padding="10,4" Background="#16A34A" Foreground="White" FontWeight="Bold" BorderThickness="0" Cursor="Hand"/>
-                                    <Button Grid.Column="2" Content="{helpers:Loc General_Cancel}" Command="{Binding ToggleCreateTunnelBoxCommand}"
-                                            Margin="6,0,0,0" Padding="8,4" Background="#F1F5F9" Foreground="#475569" BorderBrush="#CBD5E1" BorderThickness="1" Cursor="Hand"/>
-                                </Grid>
-                            </StackPanel>
+                                <!-- Status Links -->
+                                <StackPanel VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="🐙 " FontSize="14"/>
+                                        <TextBlock Text="{helpers:Loc Settings_GitHubLoggedInAs}" FontWeight="SemiBold" Foreground="#334155" FontSize="12.5" Margin="0,0,6,0"
+                                                   Visibility="{Binding IsLoggedIn, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                        <Border Background="#DCFCE7" CornerRadius="4" Padding="6,2" Margin="0,0,6,0"
+                                                Visibility="{Binding IsLoggedIn, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <TextBlock Text="{Binding LoggedInUsername, StringFormat='👤 {0}'}" Foreground="#15803D" FontSize="12" FontWeight="Bold"/>
+                                        </Border>
+                                        <TextBlock Text="{helpers:Loc Settings_GitHubNotLoggedIn}" Foreground="#64748B" FontSize="12.5"
+                                                   Visibility="{Binding IsLoggedIn, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </DockPanel>
                         </Border>
 
-                        <!-- Manual Tunnel ID fallback -->
-                        <Grid Margin="0,0,0,8">
+                        <!-- GitHub Repository (Optioneel voor community templates / updates) -->
+                        <Grid Margin="0,0,0,10">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="160"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Tunnel ID (UUID):" VerticalAlignment="Center" FontWeight="Normal" Foreground="#64748B" FontSize="11.5"/>
-                            <TextBox Grid.Column="1" Text="{Binding CloudflareTunnelId, UpdateSourceTrigger=PropertyChanged}" 
-                                     Background="#F8FAFC" Foreground="#334155" BorderBrush="#CBD5E1" Padding="8,4" FontSize="11.5" FontFamily="Consolas"/>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="{helpers:Loc Settings_GitHubRepoOwnerLabel}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
+                                <TextBox Text="{Binding GitHubRepoOwner, UpdateSourceTrigger=PropertyChanged}" 
+                                         Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="{helpers:Loc Settings_GitHubRepoNameLabel}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
+                                <TextBox Text="{Binding GitHubRepoName, UpdateSourceTrigger=PropertyChanged}" 
+                                         Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6"/>
+                            </StackPanel>
                         </Grid>
 
-                        <!-- Domeinnaam -->
-                        <Grid Margin="0,0,0,12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="160"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="{helpers:Loc Settings_MainDomain}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#334155" FontSize="12"/>
-                            <TextBox Grid.Column="1" Text="{Binding CloudflareDomain, UpdateSourceTrigger=PropertyChanged}" 
-                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,5" ToolTip="Bijv. jouwbedrijf.nl (waarop subdomeinen worden aangemaakt)"/>
-                        </Grid>
-
-                        <!-- Test Button & Status -->
-                        <DockPanel>
-                            <Button Content="{helpers:Loc Settings_TestCloudflare}" Command="{Binding TestCloudflareConnectionCommand}"
-                                    Padding="14,6" Background="#EA580C" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand" DockPanel.Dock="Left"/>
-                            <TextBlock Text="{Binding CloudflareTestStatus}" Foreground="#0284C7" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"/>
+                        <!-- Test GitHub Button -->
+                        <DockPanel Margin="0,2,0,0">
+                            <Button Content="{helpers:Loc Settings_TestGitHub}" Command="{Binding TestGitHubConnectionCommand}"
+                                    Padding="14,6" Background="#4F46E5" Foreground="White" BorderThickness="0" Cursor="Hand" DockPanel.Dock="Left"/>
+                            <TextBlock Text="{Binding GitHubTestStatus}" Foreground="#0284C7" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"/>
                         </DockPanel>
                     </StackPanel>
                 </Border>
 
-                <!-- Section 4: Voorkeuren -->
+                <!-- Section 3: Voorkeuren -->
                 <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="16">
                     <StackPanel>
                         <TextBlock Text="{helpers:Loc Settings_AppPreferences}" FontSize="15" FontWeight="SemiBold" Foreground="#059669" Margin="0,0,0,12"/>
