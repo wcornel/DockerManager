@@ -72,6 +72,25 @@ public class ProfileModel : ObservableObject
         set => SetProperty(ref _autoStopPreviousOnSwitch, value);
     }
 
+    private string _volumesSubfolder = string.Empty;
+    public string VolumesSubfolder
+    {
+        get => _volumesSubfolder;
+        set => SetProperty(ref _volumesSubfolder, value);
+    }
+
+    public string GetEffectiveVolumesSubfolder()
+    {
+        if (!string.IsNullOrWhiteSpace(VolumesSubfolder))
+        {
+            var clean = VolumesSubfolder.Trim().TrimStart('/', '\\').Replace('\\', '/');
+            if (!string.IsNullOrWhiteSpace(clean)) return clean;
+        }
+
+        var safe = string.Join("", (Name ?? "default").Where(char.IsLetterOrDigit)).ToLowerInvariant();
+        return string.IsNullOrWhiteSpace(safe) ? "default" : safe;
+    }
+
     public ProfileCloudflareConfig Cloudflare { get; set; } = new();
     public ProfileRegistryConfig Registry { get; set; } = new();
 

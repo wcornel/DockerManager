@@ -204,6 +204,9 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
     [ObservableProperty]
     private bool _autoStopPreviousOnSwitch;
 
+    [ObservableProperty]
+    private string _volumesSubfolder = string.Empty;
+
     // Quick Copy
     public ObservableCollection<ProfileCopySource> CopySources { get; } = new();
 
@@ -272,6 +275,7 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
         Name = profile.Name;
         Description = profile.Description;
         AutoStopPreviousOnSwitch = profile.AutoStopPreviousOnSwitch;
+        VolumesSubfolder = profile.VolumesSubfolder;
 
         var globalSettings = _settingsService.Settings;
 
@@ -390,6 +394,10 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
     {
         CopyCloudflareSettings();
         CopyRegistrySettings();
+        if (SelectedCopySource?.SourceProfile is { } src)
+        {
+            VolumesSubfolder = src.VolumesSubfolder;
+        }
         CopyStatusMessage = $"✅ Alle instellingen overgenomen van '{SelectedCopySource?.DisplayName}'!";
     }
 
@@ -466,6 +474,7 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
         Profile.Name = string.IsNullOrWhiteSpace(Name) ? OriginalName : Name.Trim();
         Profile.Description = Description.Trim();
         Profile.AutoStopPreviousOnSwitch = AutoStopPreviousOnSwitch;
+        Profile.VolumesSubfolder = VolumesSubfolder.Trim();
 
         // Cloudflare
         Profile.Cloudflare ??= new ProfileCloudflareConfig();
@@ -510,6 +519,30 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
 
     [ObservableProperty]
     private string _profilesSubfolder = string.Empty;
+
+    [ObservableProperty]
+    private string _volumesRootPath = string.Empty;
+
+    [RelayCommand]
+    private void BrowseVolumesRoot()
+    {
+        try
+        {
+            var dialog = new Microsoft.Win32.OpenFolderDialog
+            {
+                Title = "Kies Volumes Hoofdmap",
+                InitialDirectory = !string.IsNullOrWhiteSpace(VolumesRootPath) && System.IO.Directory.Exists(VolumesRootPath)
+                    ? VolumesRootPath
+                    : System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData)
+            };
+
+            if (dialog.ShowDialog() == true)
+            {
+                VolumesRootPath = dialog.FolderName;
+            }
+        }
+        catch { }
+    }
 
     [ObservableProperty]
     private bool _isPipeSelected = true;
@@ -566,6 +599,7 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
         Name = server.Name;
         UpdateHeader(server.Name);
         ProfilesSubfolder = server.ProfilesSubfolder;
+        VolumesRootPath = server.VolumesRootPath;
 
         if (server.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase))
         {
@@ -674,6 +708,7 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
         Server.PipeName = PipeName.Trim();
         Server.TcpUrl = TcpUrl.Trim();
         Server.ProfilesSubfolder = string.IsNullOrWhiteSpace(ProfilesSubfolder) ? "local" : ProfilesSubfolder.Trim();
+        Server.VolumesRootPath = VolumesRootPath.Trim();
 
         foreach (var pVm in Profiles)
         {

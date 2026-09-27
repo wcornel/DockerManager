@@ -1143,6 +1143,64 @@ services:
         Assert.Equal(2, newServerTab.Profiles.Count);
         Assert.Equal("Profiel 2", newServerTab.SelectedProfile?.Name);
     }
+
+    [Fact]
+    public void TestVolumesResolution_PerServerAndProfile()
+    {
+        var cred = new CredentialService();
+        var sett = new SettingsService(cred);
+        var dock = new DockerService(sett, cred);
+
+        // 1. Local Windows Server
+        var localServer = new DockerServerEnvironment
+        {
+            Name = "Mijn Windows PC",
+            HostType = "Pipe",
+            VolumesRootPath = @"D:\DockerData\Volumes"
+        };
+        Assert.Equal(@"D:\DockerData\Volumes", localServer.GetEffectiveVolumesRootPath());
+
+        var profile = new ProfileModel
+        {
+            Name = "Productie Stack",
+            VolumesSubfolder = "prod"
+        };
+        Assert.Equal("prod", profile.GetEffectiveVolumesSubfolder());
+
+        var relativeVol = new VolumeMapping
+        {
+            HostPath = "volumes/mariadb_data",
+            ContainerPath = "/var/lib/mysql",
+            IsNamedVolume = false
+        };
+
+        var resolvedLocal = dock.ResolveVolumeHostPath(relativeVol, profile.Name, "mariadb", profile.VolumesSubfolder, localServer);
+        Assert.Equal(Path.GetFullPath(@"D:\DockerData\Volumes\prod\mariadb_data"), resolvedLocal);
+
+        // 2. Remote Linux VPS Server
+        var vpsServer = new DockerServerEnvironment
+        {
+            Name = "Cloud VPS",
+            HostType = "Tcp",
+            TcpUrl = "tcp://10.0.0.1:2375",
+            VolumesRootPath = "/opt/docker/volumes"
+        };
+        Assert.Equal("/opt/docker/volumes", vpsServer.GetEffectiveVolumesRootPath());
+
+        var resolvedVps = dock.ResolveVolumeHostPath(relativeVol, profile.Name, "mariadb", profile.VolumesSubfolder, vpsServer);
+        Assert.Equal("/opt/docker/volumes/prod/mariadb_data", resolvedVps);
+
+        // 3. Named Volume
+        var namedVol = new VolumeMapping
+        {
+            HostPath = "my_custom_named_volume",
+            ContainerPath = "/data",
+            IsNamedVolume = true
+        };
+        var resolvedNamed = dock.ResolveVolumeHostPath(namedVol, profile.Name, "app", profile.VolumesSubfolder, vpsServer);
+        Assert.Equal("my_custom_named_volume", resolvedNamed);
+    }
 }
+
 
 
