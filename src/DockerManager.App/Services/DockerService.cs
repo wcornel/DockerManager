@@ -533,14 +533,37 @@ public class DockerService : IDockerService
         return networkName;
     }
 
-    private string ResolveVolumeHostPath(VolumeMapping volume, string profileName, string containerName)
+    internal string ResolveVolumeHostPath(VolumeMapping volume, string profileName, string containerName)
     {
         if (volume.IsNamedVolume)
         {
             return volume.HostPath;
         }
 
+        var isRemote = _settingsService.Settings.DockerHostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase);
         var hostPath = volume.HostPath;
+
+        if (isRemote)
+        {
+            // If already an absolute Linux path (starts with /)
+            if (hostPath.StartsWith("/"))
+            {
+                return hostPath.Replace('\\', '/');
+            }
+
+            // Clean up relative path and map to a standard Linux volume path on the remote host
+            var cleanPath = hostPath.TrimStart('.', '/', '\\').Replace('\\', '/');
+            var safeProfile = string.Join("", profileName.Where(char.IsLetterOrDigit)).ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(safeProfile)) safeProfile = "default";
+
+            if (cleanPath.StartsWith("volumes/", StringComparison.OrdinalIgnoreCase))
+            {
+                cleanPath = cleanPath["volumes/".Length..];
+            }
+
+            return $"/var/lib/dockermanager/volumes/{safeProfile}/{cleanPath}";
+        }
+
         string fullHostPath;
 
         if (Path.IsPathRooted(hostPath))
