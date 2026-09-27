@@ -65,6 +65,7 @@ public class LocalizationService : ILocalizationService
             ["Menu_About"] = "ℹ️ Over DockerManager",
 
             // Toolbar
+            ["Toolbar_Server"] = "Server:",
             ["Toolbar_Profile"] = "Profiel:",
             ["Toolbar_ContainersCount"] = "{0} containers",
             ["Toolbar_StartAllTip"] = "▶ Start alle containers in dit profiel",
@@ -302,6 +303,14 @@ public class LocalizationService : ILocalizationService
 
             // Settings Dialog Sections & Labels
             ["Settings_Subheader"] = "Beheer de verbinding met Docker, container registries en applicatievoorkeuren.",
+            ["Settings_DockerServers"] = "Docker Servers & Omgevingen",
+            ["Settings_ServersDescription"] = "Beheer meerdere Docker hosts (lokaal en extern). Elke server heeft zijn eigen verbinding en een eigen submap voor profielen.",
+            ["Settings_SelectServer"] = "Actieve Server / Omgeving om te bewerken:",
+            ["Settings_AddServerBtn"] = "➕ Server Toevoegen",
+            ["Settings_DeleteServerBtn"] = "🗑️ Verwijderen",
+            ["Settings_ServerNameLabel"] = "Weergavenaam Server:",
+            ["Settings_ServerSubfolderLabel"] = "Gekoppelde Profielen Submap:",
+            ["Settings_ServerSubfolderTip"] = "Profielen voor deze server worden opgeslagen in: profiles/<submap>/",
             ["Settings_HostDescription"] = "Kies of Docker lokaal op Windows draait of op een externe server/test-pc over het netwerk.",
             ["Settings_HostLocal"] = "Lokaal (Windows Named Pipe)",
             ["Settings_HostTcp"] = "Netwerk / Test PC (TCP Endpoint)",
@@ -395,6 +404,7 @@ public class LocalizationService : ILocalizationService
             ["Menu_About"] = "ℹ️ About DockerManager",
 
             // Toolbar
+            ["Toolbar_Server"] = "Server:",
             ["Toolbar_Profile"] = "Profile:",
             ["Toolbar_ContainersCount"] = "{0} containers",
             ["Toolbar_StartAllTip"] = "▶ Start all containers in this profile",
@@ -632,6 +642,14 @@ public class LocalizationService : ILocalizationService
 
             // Settings Dialog Sections & Labels
             ["Settings_Subheader"] = "Manage Docker connection, container registries, and application preferences.",
+            ["Settings_DockerServers"] = "Docker Servers & Environments",
+            ["Settings_ServersDescription"] = "Manage multiple Docker hosts (local and remote). Each server has its own connection and dedicated profiles subfolder.",
+            ["Settings_SelectServer"] = "Active Server / Environment to edit:",
+            ["Settings_AddServerBtn"] = "➕ Add Server",
+            ["Settings_DeleteServerBtn"] = "🗑️ Delete",
+            ["Settings_ServerNameLabel"] = "Server Display Name:",
+            ["Settings_ServerSubfolderLabel"] = "Linked Profiles Subfolder:",
+            ["Settings_ServerSubfolderTip"] = "Profiles for this server will be stored in: profiles/<subfolder>/",
             ["Settings_HostDescription"] = "Choose whether Docker runs locally on Windows or on an external server / test PC across the network.",
             ["Settings_HostLocal"] = "Local (Windows Named Pipe)",
             ["Settings_HostTcp"] = "Network / Test PC (TCP Endpoint)",

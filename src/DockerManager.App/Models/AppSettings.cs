@@ -44,13 +44,60 @@ public class AppSettings
     public double? WindowTop { get; set; }
     public double? WindowLeft { get; set; }
     public string WindowState { get; set; } = "Normal";
+    public List<DockerServerEnvironment> Servers { get; set; } = new();
+    public string ActiveServerId { get; set; } = string.Empty;
+
+    public DockerServerEnvironment GetActiveServer()
+    {
+        EnsureDefaultServers();
+        var found = Servers.FirstOrDefault(s => s.Id.Equals(ActiveServerId, StringComparison.OrdinalIgnoreCase));
+        if (found != null) return found;
+        return Servers.First();
+    }
+
+    public void EnsureDefaultServers()
+    {
+        if (Servers == null)
+        {
+            Servers = new List<DockerServerEnvironment>();
+        }
+
+        if (Servers.Count == 0)
+        {
+            // Backward compatibility: migrate existing settings if present
+            var isExistingTcp = DockerHostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase);
+
+            var localServer = new DockerServerEnvironment
+            {
+                Id = "local",
+                Name = "🖥️ Lokale PC",
+                HostType = "Pipe",
+                PipeName = !string.IsNullOrWhiteSpace(DockerPipeName) ? DockerPipeName : "npipe://./pipe/docker_engine",
+                ProfilesSubfolder = "local"
+            };
+
+            var vpsServer = new DockerServerEnvironment
+            {
+                Id = "vps",
+                Name = "🌐 Externe VPS",
+                HostType = "Tcp",
+                TcpUrl = !string.IsNullOrWhiteSpace(DockerTcpUrl) ? DockerTcpUrl : "tcp://100.x.y.z:2375",
+                ProfilesSubfolder = "vps"
+            };
+
+            Servers.Add(localServer);
+            Servers.Add(vpsServer);
+
+            ActiveServerId = isExistingTcp ? "vps" : "local";
+        }
+        else if (string.IsNullOrWhiteSpace(ActiveServerId) || !Servers.Any(s => s.Id.Equals(ActiveServerId, StringComparison.OrdinalIgnoreCase)))
+        {
+            ActiveServerId = Servers[0].Id;
+        }
+    }
 
     public string GetEffectiveDockerUri()
     {
-        if (DockerHostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase))
-        {
-            return DockerTcpUrl;
-        }
-        return DockerPipeName;
+        return GetActiveServer().GetEffectiveUri();
     }
 }

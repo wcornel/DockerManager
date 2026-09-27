@@ -293,6 +293,7 @@ public partial class MainWindow : Window
             if (dialog.ShowDialog() == true)
             {
                 _viewModel.RefreshAuthStatus();
+                _viewModel.LoadServersFromSettings();
                 // Settings changed: re-check docker status and refresh profiles
                 _ = _viewModel.CheckDockerStatusAsync();
                 _ = _viewModel.LoadProfilesAsync(forceRefresh: false);

@@ -9,8 +9,11 @@ namespace DockerManager.App.Services;
 public interface IGitHubProfileService
 {
     Task<List<ProfileModel>> LoadProfilesAsync(bool forceRefreshFromGitHub = false, CancellationToken ct = default);
+    Task<List<ProfileModel>> LoadProfilesAsync(string? subfolder, bool forceRefreshFromGitHub = false, CancellationToken ct = default);
     Task<(bool Success, string Message)> TestGitHubConnectionAsync(string? overrideToken = null, CancellationToken ct = default);
     Task SaveProfileLocallyAsync(ProfileModel profile, CancellationToken ct = default);
+    Task SaveProfileLocallyAsync(ProfileModel profile, string? subfolder, CancellationToken ct = default);
+    Task EnsureSubfoldersAndMigrateAsync(IEnumerable<DockerServerEnvironment> servers, CancellationToken ct = default);
 }
 
 public class GitHubProfileService : IGitHubProfileService
@@ -38,7 +41,7 @@ public class GitHubProfileService : IGitHubProfileService
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "DockerManager-App");
     }
 
-    public async Task SaveProfileLocallyAsync(ProfileModel profile, CancellationToken ct = default)
+    public async Task EnsureSubfoldersAndMigrateAsync(IEnumerable<DockerServerEnvironment> servers, CancellationToken ct = default)
     {
         var localDir = _settingsService.Settings.LocalProfilesFolder;
         if (string.IsNullOrWhiteSpace(localDir))
@@ -46,9 +49,83 @@ public class GitHubProfileService : IGitHubProfileService
             localDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles");
         }
 
-        Directory.CreateDirectory(localDir);
+        if (!Directory.Exists(localDir))
+        {
+            Directory.CreateDirectory(localDir);
+        }
+
+        // 1. Ensure subdirectories exist for each server
+        foreach (var server in servers)
+        {
+            var subfolder = string.IsNullOrWhiteSpace(server.ProfilesSubfolder) ? "local" : server.ProfilesSubfolder;
+            var subDirPath = Path.Combine(localDir, subfolder);
+            if (!Directory.Exists(subDirPath))
+            {
+                Directory.CreateDirectory(subDirPath);
+            }
+        }
+
+        // 2. Migration: check for legacy root .json files (e.g. oracle.json)
+        var rootJsonFiles = Directory.GetFiles(localDir, "*.json");
+        if (rootJsonFiles.Length > 0)
+        {
+            var targetSubfolder = Path.Combine(localDir, "local");
+            if (!Directory.Exists(targetSubfolder))
+            {
+                Directory.CreateDirectory(targetSubfolder);
+            }
+
+            foreach (var file in rootJsonFiles)
+            {
+                var fileName = Path.GetFileName(file);
+                var targetFile = Path.Combine(targetSubfolder, fileName);
+
+                // If target doesn't exist yet, copy it to profiles/local/
+                if (!File.Exists(targetFile))
+                {
+                    try
+                    {
+                        File.Copy(file, targetFile);
+                    }
+                    catch { }
+                }
+
+                // If not example.json, remove from root so root stays clean
+                if (!fileName.Equals("example.json", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        File.Delete(file);
+                    }
+                    catch { }
+                }
+            }
+        }
+    }
+
+    public Task SaveProfileLocallyAsync(ProfileModel profile, CancellationToken ct = default)
+    {
+        return SaveProfileLocallyAsync(profile, null, ct);
+    }
+
+    public async Task SaveProfileLocallyAsync(ProfileModel profile, string? subfolder, CancellationToken ct = default)
+    {
+        var localDir = _settingsService.Settings.LocalProfilesFolder;
+        if (string.IsNullOrWhiteSpace(localDir))
+        {
+            localDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles");
+        }
+
+        if (string.IsNullOrWhiteSpace(subfolder))
+        {
+            subfolder = _settingsService.Settings.GetActiveServer().ProfilesSubfolder;
+        }
+
+        var targetDir = Path.Combine(localDir, subfolder);
+        Directory.CreateDirectory(targetDir);
+
         var safeName = string.Join("_", profile.Name.Split(Path.GetInvalidFileNameChars())).ToLowerInvariant();
-        var filePath = Path.Combine(localDir, $"{safeName}.json");
+        var filePath = Path.Combine(targetDir, $"{safeName}.json");
         var json = JsonSerializer.Serialize(profile, JsonOptions);
         await File.WriteAllTextAsync(filePath, json, ct);
     }
@@ -98,7 +175,12 @@ public class GitHubProfileService : IGitHubProfileService
         }
     }
 
-    public async Task<List<ProfileModel>> LoadProfilesAsync(bool forceRefreshFromGitHub = false, CancellationToken ct = default)
+    public Task<List<ProfileModel>> LoadProfilesAsync(bool forceRefreshFromGitHub = false, CancellationToken ct = default)
+    {
+        return LoadProfilesAsync(null, forceRefreshFromGitHub, ct);
+    }
+
+    public async Task<List<ProfileModel>> LoadProfilesAsync(string? subfolder, bool forceRefreshFromGitHub = false, CancellationToken ct = default)
     {
         var profiles = new List<ProfileModel>();
         var settings = _settingsService.Settings;
@@ -109,10 +191,21 @@ public class GitHubProfileService : IGitHubProfileService
             localDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles");
         }
 
-        // Load strictly from local folder
-        if (!string.IsNullOrWhiteSpace(localDir) && Directory.Exists(localDir))
+        if (string.IsNullOrWhiteSpace(subfolder))
         {
-            var jsonFiles = Directory.GetFiles(localDir, "*.json");
+            subfolder = settings.GetActiveServer().ProfilesSubfolder;
+        }
+
+        var targetDir = Path.Combine(localDir, subfolder);
+
+        if (!Directory.Exists(targetDir))
+        {
+            Directory.CreateDirectory(targetDir);
+        }
+
+        if (Directory.Exists(targetDir))
+        {
+            var jsonFiles = Directory.GetFiles(targetDir, "*.json");
             foreach (var file in jsonFiles)
             {
                 try
@@ -131,21 +224,35 @@ public class GitHubProfileService : IGitHubProfileService
             }
         }
 
-        // If local folder doesn't exist or is completely empty (first startup), create profiles folder and default.json
+        // If target folder is empty, check if example.json exists in root to copy as starter, or create default
         if (profiles.Count == 0)
         {
-            if (!Directory.Exists(localDir))
+            var rootExample = Path.Combine(localDir, "example.json");
+            if (File.Exists(rootExample))
             {
-                Directory.CreateDirectory(localDir);
+                try
+                {
+                    var content = await File.ReadAllTextAsync(rootExample, ct);
+                    var profile = JsonSerializer.Deserialize<ProfileModel>(content, JsonOptions);
+                    if (profile != null && !string.IsNullOrWhiteSpace(profile.Name))
+                    {
+                        profiles.Add(profile);
+                        await SaveProfileLocallyAsync(profile, subfolder, ct);
+                    }
+                }
+                catch { }
             }
 
-            var defaultProfile = CreateDefaultProfile();
-            profiles.Add(defaultProfile);
-            try
+            if (profiles.Count == 0)
             {
-                await SaveProfileLocallyAsync(defaultProfile, ct);
+                var defaultProfile = CreateDefaultProfile();
+                profiles.Add(defaultProfile);
+                try
+                {
+                    await SaveProfileLocallyAsync(defaultProfile, subfolder, ct);
+                }
+                catch { }
             }
-            catch { }
         }
 
         return profiles;

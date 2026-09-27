@@ -21,6 +21,24 @@ public partial class MainViewModel : ObservableObject
 
     public Func<string, string, bool>? ConfirmPrompt { get; set; }
 
+    public ObservableCollection<DockerServerEnvironment> Servers { get; } = new();
+
+    [ObservableProperty]
+    private DockerServerEnvironment? _selectedServer;
+
+    partial void OnSelectedServerChanged(DockerServerEnvironment? value)
+    {
+        if (value == null) return;
+        _settingsService.Settings.ActiveServerId = value.Id;
+        _settingsService.Settings.DockerHostType = value.HostType;
+        _settingsService.Settings.DockerPipeName = value.PipeName;
+        _settingsService.Settings.DockerTcpUrl = value.TcpUrl;
+        _settingsService.Save();
+
+        _ = CheckDockerStatusAsync();
+        _ = LoadProfilesAsync(forceRefresh: false);
+    }
+
     [ObservableProperty]
     private ProfileModel? _selectedProfile;
 
@@ -152,9 +170,23 @@ public partial class MainViewModel : ObservableObject
         _ = CheckDockerStatusAsync();
     }
 
+    public void LoadServersFromSettings()
+    {
+        _settingsService.Settings.EnsureDefaultServers();
+        Servers.Clear();
+        foreach (var s in _settingsService.Settings.Servers)
+        {
+            Servers.Add(s);
+        }
+
+        var active = _settingsService.Settings.GetActiveServer();
+        SelectedServer = Servers.FirstOrDefault(s => s.Id.Equals(active.Id, StringComparison.OrdinalIgnoreCase)) ?? Servers.FirstOrDefault();
+    }
+
     public async Task InitializeAsync()
     {
         RefreshAuthStatus();
+        LoadServersFromSettings();
         await CheckDockerStatusAsync();
         await LoadProfilesAsync(forceRefresh: false);
 
@@ -218,15 +250,21 @@ public partial class MainViewModel : ObservableObject
 
         try
         {
-            var list = await _gitHubProfileService.LoadProfilesAsync(forceRefresh);
+            var currentServer = SelectedServer ?? _settingsService.Settings.GetActiveServer();
+            await _gitHubProfileService.EnsureSubfoldersAndMigrateAsync(_settingsService.Settings.Servers);
+
+            var list = await _gitHubProfileService.LoadProfilesAsync(currentServer.ProfilesSubfolder, forceRefresh);
             Profiles.Clear();
             foreach (var p in list)
             {
                 Profiles.Add(p);
             }
 
-            // Restore last active profile or select first
-            var last = _settingsService.Settings.LastActiveProfile;
+            // Restore last active profile for this server or select first
+            var last = !string.IsNullOrWhiteSpace(currentServer.LastActiveProfile)
+                ? currentServer.LastActiveProfile
+                : _settingsService.Settings.LastActiveProfile;
+
             var match = Profiles.FirstOrDefault(p => p.Name.Equals(last, StringComparison.OrdinalIgnoreCase)) ?? Profiles.FirstOrDefault();
             
             if (match != null)
@@ -251,6 +289,10 @@ public partial class MainViewModel : ObservableObject
     {
         if (newValue == null) return;
 
+        if (SelectedServer != null)
+        {
+            SelectedServer.LastActiveProfile = newValue.Name;
+        }
         _settingsService.Settings.LastActiveProfile = newValue.Name;
         _settingsService.Save();
 
@@ -537,7 +579,8 @@ public partial class MainViewModel : ObservableObject
     {
         if (SelectedProfile == null) return;
         _lastHandledChange = DateTime.UtcNow.AddSeconds(2);
-        await _gitHubProfileService.SaveProfileLocallyAsync(SelectedProfile);
+        var subfolder = SelectedServer?.ProfilesSubfolder ?? _settingsService.Settings.GetActiveServer().ProfilesSubfolder;
+        await _gitHubProfileService.SaveProfileLocallyAsync(SelectedProfile, subfolder);
     }
 
     [RelayCommand]
@@ -580,6 +623,7 @@ public partial class MainViewModel : ObservableObject
             {
                 NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
                 Filter = "*.*",
+                IncludeSubdirectories = true,
                 EnableRaisingEvents = true
             };
 

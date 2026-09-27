@@ -540,7 +540,8 @@ public class DockerService : IDockerService
             return volume.HostPath;
         }
 
-        var isRemote = _settingsService.Settings.DockerHostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase);
+        var activeServer = _settingsService.Settings.GetActiveServer();
+        var isRemote = activeServer.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase);
         var hostPath = volume.HostPath;
 
         if (isRemote)
