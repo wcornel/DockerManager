@@ -39,6 +39,8 @@ public class DialogTests
                 // 1. SettingsDialog
                 var settingsVm = new SettingsViewModel(sett, cred, prof, dock, cf);
                 var settingsDlg = new SettingsDialog(settingsVm, auth, cred, sett);
+                settingsDlg.Show();
+                settingsDlg.UpdateLayout();
                 Assert.NotNull(settingsDlg);
 
                 // 2. EditServiceDialog (Add Mode)

@@ -297,8 +297,15 @@ public partial class MainWindow : Window
         {
             var serverId = targetServerId ?? _viewModel.SelectedServer?.Id;
             var profileName = targetProfileName ?? _viewModel.SelectedProfile?.Name;
-            var settingsVm = new SettingsViewModel(_settingsService, _credentialService, _gitHubProfileService, _dockerService, _cloudflareService, _gitHubAuthService);
-            settingsVm.InitializeTabs(serverId, profileName);
+            var settingsVm = new SettingsViewModel(
+                _settingsService,
+                _credentialService,
+                _gitHubProfileService,
+                _dockerService,
+                _cloudflareService,
+                _gitHubAuthService,
+                serverId,
+                profileName);
             var dialog = new SettingsDialog(settingsVm, _gitHubAuthService, _credentialService, _settingsService)
             {
                 Owner = this

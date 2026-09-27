@@ -59,7 +59,9 @@ public partial class SettingsViewModel : ObservableObject
         IGitHubProfileService gitHubProfileService,
         IDockerService dockerService,
         ICloudflareService cloudflareService,
-        IGitHubAuthService? gitHubAuthService = null)
+        IGitHubAuthService? gitHubAuthService = null,
+        string? initialServerId = null,
+        string? initialProfileName = null)
     {
         _settingsService = settingsService;
         _credentialService = credentialService;
@@ -68,7 +70,7 @@ public partial class SettingsViewModel : ObservableObject
         _cloudflareService = cloudflareService;
         _gitHubAuthService = gitHubAuthService ?? new GitHubAuthService();
 
-        InitializeTabs();
+        InitializeTabs(initialServerId, initialProfileName);
     }
 
     public void InitializeTabs(string? initialServerId = null, string? initialProfileName = null)
@@ -98,7 +100,7 @@ public partial class SettingsViewModel : ObservableObject
             List<ProfileModel> profs;
             try
             {
-                profs = _gitHubProfileService.LoadProfilesAsync(subfolder).GetAwaiter().GetResult();
+                profs = _gitHubProfileService.LoadProfilesLocally(subfolder);
             }
             catch
             {
@@ -242,13 +244,13 @@ public partial class SettingsViewModel : ObservableObject
             // Save all profiles for this server
             foreach (var pVm in tab.Profiles)
             {
-                await _gitHubProfileService.SaveProfileLocallyAsync(pVm.Profile, subfolder);
+                _gitHubProfileService.SaveProfileLocally(pVm.Profile, subfolder);
             }
 
             // Delete removed profiles
             foreach (var delName in tab.DeletedProfileNames)
             {
-                await _gitHubProfileService.DeleteProfileLocallyAsync(delName, subfolder);
+                _gitHubProfileService.DeleteProfileLocally(delName, subfolder);
             }
         }
 
