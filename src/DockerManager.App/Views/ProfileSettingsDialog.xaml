@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:helpers="clr-namespace:DockerManager.App.Helpers"
         mc:Ignorable="d"
-        Title="{helpers:Loc ProfileSettings_Title}" Height="730" Width="680"
+        Title="{helpers:Loc ProfileSettings_Title}" Height="760" Width="680"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         Icon="pack://application:,,,/DockerManager.App;component/app.ico"
@@ -31,6 +31,34 @@
         <!-- Scrollable Content -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="0,0,8,0">
+
+                <!-- 0. Profiel Selectie & Beheer -->
+                <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,0,0,12">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,8">
+                            <TextBlock Text="{helpers:Loc ProfileSettings_ProfileManagement}" FontSize="14" FontWeight="SemiBold" Foreground="#0284C7" VerticalAlignment="Center"/>
+                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                                <Button Content="{helpers:Loc ProfileSettings_AddProfileBtn}" Command="{Binding AddProfileCommand}" 
+                                        Padding="10,4" Margin="0,0,6,0" Background="#F0FDF4" Foreground="#16A34A" BorderBrush="#BBF7D0" BorderThickness="1" Cursor="Hand" FontWeight="SemiBold"/>
+                                <Button Content="{helpers:Loc ProfileSettings_DeleteProfileBtn}" Command="{Binding DeleteProfileCommand}" 
+                                        Padding="10,4" Background="#FEF2F2" Foreground="#DC2626" BorderBrush="#FECACA" BorderThickness="1" Cursor="Hand"/>
+                            </StackPanel>
+                        </DockPanel>
+                        <TextBlock Text="{helpers:Loc ProfileSettings_ProfileManagementTip}"
+                                   FontSize="12" Foreground="#64748B" TextWrapping="Wrap" Margin="0,0,0,10"/>
+
+                        <!-- Profiel Kiezer -->
+                        <Grid Margin="0,0,0,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{helpers:Loc ProfileSettings_SelectProfileLabel}" FontSize="12" Foreground="#475569" FontWeight="Medium" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding Profiles}" SelectedItem="{Binding EditingProfile, Mode=TwoWay}"
+                                      DisplayMemberPath="Name" Padding="8,5" Background="#F8FAFC" Foreground="#0F172A" BorderBrush="#CBD5E1" FontSize="13" FontWeight="SemiBold"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
 
                 <!-- 1. Algemene Informatie -->
                 <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,0,0,12">

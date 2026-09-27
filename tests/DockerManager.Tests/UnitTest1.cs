@@ -857,6 +857,8 @@ services:
         // 2. Remote TCP mode (Linux paths)
         sett.Settings.DockerHostType = "Tcp";
         sett.Settings.DockerTcpUrl = "tcp://100.80.90.100:2375";
+        sett.Settings.GetActiveServer().HostType = "Tcp";
+        sett.Settings.GetActiveServer().TcpUrl = "tcp://100.80.90.100:2375";
 
         var relVol = new VolumeMapping { HostPath = "./volumes/nginx/data", IsNamedVolume = false };
         var resolvedRemote = dockerService.ResolveVolumeHostPath(relVol, "Oracle", "nginx");
@@ -867,6 +869,7 @@ services:
 
         // Reset to local pipe
         sett.Settings.DockerHostType = "Pipe";
+        sett.Settings.GetActiveServer().HostType = "Pipe";
     }
 
     [Fact]
@@ -1060,6 +1063,37 @@ services:
         thread.SetApartmentState(System.Threading.ApartmentState.STA);
         thread.Start();
         thread.Join();
+    }
+
+    [Fact]
+    public void TestProfileSettingsViewModel_AddAndManageProfiles()
+    {
+        var cred = new CredentialService();
+        var sett = new SettingsService(cred);
+        var dock = new DockerService(sett, cred);
+        var cf = new CloudflareService(sett, cred);
+
+        var p1 = new ProfileModel { Name = "Profile1" };
+        var p2 = new ProfileModel { Name = "Profile2" };
+        var vm = new ProfileSettingsViewModel(p1, new[] { p1, p2 }, sett, cred, cf, dock);
+
+        Assert.Equal(2, vm.Profiles.Count);
+        Assert.Equal("Profile1", vm.EditingProfile?.Name);
+
+        // Add Profile
+        vm.AddProfileCommand.Execute(null);
+        Assert.Equal(3, vm.Profiles.Count);
+        Assert.NotNull(vm.EditingProfile);
+        Assert.StartsWith("Profiel", vm.EditingProfile.Name);
+
+        // Switch back to Profile1
+        vm.EditingProfile = p1;
+        Assert.Equal("Profile1", vm.Name);
+
+        // Edit description
+        vm.Description = "Updated Desc";
+        vm.EditingProfile = p2; // triggers commit to Profile1
+        Assert.Equal("Updated Desc", p1.Description);
     }
 }
 
