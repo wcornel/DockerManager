@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using DockerManager.App.Models;
 using DockerManager.App.Services;
 
 namespace DockerManager.App.ViewModels;
@@ -145,15 +146,25 @@ public partial class SettingsViewModel : ObservableObject
     private string _newRegistryPassword = string.Empty;
 
     public System.Collections.ObjectModel.ObservableCollection<RegistryCredential> Registries { get; } = new();
+    public System.Collections.ObjectModel.ObservableCollection<DockerServerEnvironment> Servers { get; } = new();
+
+    [ObservableProperty]
+    private DockerServerEnvironment? _editingServer;
+
+    partial void OnEditingServerChanged(DockerServerEnvironment? value)
+    {
+        OnPropertyChanged(nameof(IsPipeSelected));
+        OnPropertyChanged(nameof(IsTcpSelected));
+    }
 
     public bool IsPipeSelected
     {
-        get => DockerHostType.Equals("Pipe", StringComparison.OrdinalIgnoreCase);
+        get => EditingServer?.HostType.Equals("Pipe", StringComparison.OrdinalIgnoreCase) ?? true;
         set
         {
-            if (value)
+            if (value && EditingServer != null)
             {
-                DockerHostType = "Pipe";
+                EditingServer.HostType = "Pipe";
                 OnPropertyChanged(nameof(IsPipeSelected));
                 OnPropertyChanged(nameof(IsTcpSelected));
             }
@@ -162,12 +173,12 @@ public partial class SettingsViewModel : ObservableObject
 
     public bool IsTcpSelected
     {
-        get => DockerHostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase);
+        get => EditingServer?.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase) ?? false;
         set
         {
-            if (value)
+            if (value && EditingServer != null)
             {
-                DockerHostType = "Tcp";
+                EditingServer.HostType = "Tcp";
                 OnPropertyChanged(nameof(IsPipeSelected));
                 OnPropertyChanged(nameof(IsTcpSelected));
             }
@@ -196,6 +207,15 @@ public partial class SettingsViewModel : ObservableObject
     public void LoadFromSettings()
     {
         var s = _settingsService.Settings;
+        s.EnsureDefaultServers();
+        Servers.Clear();
+        foreach (var srv in s.Servers)
+        {
+            Servers.Add(srv.Clone());
+        }
+        var active = s.GetActiveServer();
+        EditingServer = Servers.FirstOrDefault(x => x.Id.Equals(active.Id, StringComparison.OrdinalIgnoreCase)) ?? Servers.FirstOrDefault();
+
         DockerHostType = s.DockerHostType;
         DockerPipeName = s.DockerPipeName;
         DockerTcpUrl = s.DockerTcpUrl;
@@ -364,38 +384,73 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private void AddServer()
+    {
+        var count = Servers.Count + 1;
+        var newServer = new DockerServerEnvironment
+        {
+            Id = Guid.NewGuid().ToString("N")[..8],
+            Name = $"Server {count}",
+            HostType = "Tcp",
+            TcpUrl = "tcp://100.x.y.z:2375",
+            ProfilesSubfolder = $"server{count}"
+        };
+        Servers.Add(newServer);
+        EditingServer = newServer;
+    }
+
+    [RelayCommand]
+    private void DeleteServer()
+    {
+        if (EditingServer == null || Servers.Count <= 1) return;
+        var toRemove = EditingServer;
+        var idx = Servers.IndexOf(toRemove);
+        Servers.Remove(toRemove);
+        EditingServer = Servers[Math.Max(0, idx - 1)];
+    }
+
+    [RelayCommand]
     private void SelectPipe()
     {
-        DockerHostType = "Pipe";
-        OnPropertyChanged(nameof(IsPipeSelected));
-        OnPropertyChanged(nameof(IsTcpSelected));
+        if (EditingServer != null)
+        {
+            EditingServer.HostType = "Pipe";
+            OnPropertyChanged(nameof(IsPipeSelected));
+            OnPropertyChanged(nameof(IsTcpSelected));
+        }
     }
 
     [RelayCommand]
     private void SelectTcp()
     {
-        DockerHostType = "Tcp";
-        OnPropertyChanged(nameof(IsPipeSelected));
-        OnPropertyChanged(nameof(IsTcpSelected));
+        if (EditingServer != null)
+        {
+            EditingServer.HostType = "Tcp";
+            if (string.IsNullOrWhiteSpace(EditingServer.TcpUrl) || EditingServer.TcpUrl.Contains("192.168.1.50"))
+            {
+                EditingServer.TcpUrl = "tcp://100.x.y.z:2375";
+            }
+            OnPropertyChanged(nameof(IsPipeSelected));
+            OnPropertyChanged(nameof(IsTcpSelected));
+        }
     }
 
     [RelayCommand]
     private async Task TestDockerConnectionAsync()
     {
+        if (EditingServer == null) return;
         IsDockerTesting = true;
-        DockerTestStatus = "Verbinden met Docker...";
+        DockerTestStatus = "Verbinden met Docker host...";
         try
         {
-            _settingsService.Settings.DockerHostType = DockerHostType;
-            _settingsService.Settings.DockerPipeName = DockerPipeName;
-            _settingsService.Settings.DockerTcpUrl = DockerTcpUrl;
-
-            var (ok, msg) = await _dockerService.PingDockerAsync();
-            DockerTestStatus = ok ? $"✅ {msg}" : $"❌ Geen verbinding: {msg}";
+            var uri = EditingServer.GetEffectiveUri();
+            using var testClient = new Docker.DotNet.DockerClientConfiguration(new Uri(uri)).CreateClient();
+            var version = await testClient.System.GetVersionAsync();
+            DockerTestStatus = $"✅ Verbonden met {EditingServer.Name}: {version.Version} ({version.Os})";
         }
         catch (Exception ex)
         {
-            DockerTestStatus = $"❌ Fout: {ex.Message}";
+            DockerTestStatus = $"❌ Fout bij verbinden: {ex.Message}";
         }
         finally
         {
@@ -643,9 +698,22 @@ public partial class SettingsViewModel : ObservableObject
     private void Save()
     {
         var s = _settingsService.Settings;
-        s.DockerHostType = DockerHostType;
-        s.DockerPipeName = DockerPipeName;
-        s.DockerTcpUrl = DockerTcpUrl;
+        s.Servers = Servers.Select(x => x.Clone()).ToList();
+        if (EditingServer != null)
+        {
+            s.ActiveServerId = EditingServer.Id;
+            s.DockerHostType = EditingServer.HostType;
+            s.DockerPipeName = EditingServer.PipeName;
+            s.DockerTcpUrl = EditingServer.TcpUrl;
+        }
+        else
+        {
+            s.DockerHostType = DockerHostType;
+            s.DockerPipeName = DockerPipeName;
+            s.DockerTcpUrl = DockerTcpUrl;
+        }
+
+        _ = _gitHubProfileService.EnsureSubfoldersAndMigrateAsync(s.Servers);
         s.GitHubRepoOwner = GitHubRepoOwner;
         s.GitHubRepoName = GitHubRepoName;
         s.GitHubDeployRepo = GitHubDeployRepo;

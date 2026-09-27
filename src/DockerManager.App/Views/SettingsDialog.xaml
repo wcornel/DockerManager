@@ -30,41 +30,89 @@
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <StackPanel>
 
-                <!-- Section 1: Docker Verbinding -->
+                <!-- Section 1: Docker Servers & Omgevingen -->
                 <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,16">
                     <StackPanel>
-                        <TextBlock Text="{helpers:Loc Settings_DockerConnection}" FontSize="15" FontWeight="SemiBold" Foreground="#0284C7" Margin="0,0,0,8"/>
-                        <TextBlock Text="{helpers:Loc Settings_HostDescription}"
+                        <DockPanel Margin="0,0,0,8">
+                            <TextBlock Text="{helpers:Loc Settings_DockerServers}" FontSize="15" FontWeight="SemiBold" Foreground="#0284C7" VerticalAlignment="Center"/>
+                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                                <Button Content="{helpers:Loc Settings_AddServerBtn}" Command="{Binding AddServerCommand}" 
+                                        Padding="10,4" Margin="0,0,6,0" Background="#F0FDF4" Foreground="#16A34A" BorderBrush="#BBF7D0" BorderThickness="1" Cursor="Hand" FontWeight="SemiBold"/>
+                                <Button Content="{helpers:Loc Settings_DeleteServerBtn}" Command="{Binding DeleteServerCommand}" 
+                                        Padding="10,4" Background="#FEF2F2" Foreground="#DC2626" BorderBrush="#FECACA" BorderThickness="1" Cursor="Hand"/>
+                            </StackPanel>
+                        </DockPanel>
+                        <TextBlock Text="{helpers:Loc Settings_ServersDescription}"
                                    FontSize="12" Foreground="#64748B" TextWrapping="Wrap" Margin="0,0,0,12"/>
 
-                        <!-- Host Type Radios -->
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                            <RadioButton Content="{helpers:Loc Settings_HostLocal}" IsChecked="{Binding IsPipeSelected}" 
-                                         Command="{Binding SelectPipeCommand}" Foreground="#0F172A" Margin="0,0,24,0"/>
-                            <RadioButton Content="{helpers:Loc Settings_HostTcp}" IsChecked="{Binding IsTcpSelected}" 
-                                         Command="{Binding SelectTcpCommand}" Foreground="#0F172A"/>
-                        </StackPanel>
+                        <!-- Server Kiezer -->
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{helpers:Loc Settings_SelectServer}" FontSize="12" Foreground="#475569" FontWeight="Medium" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding Servers}" SelectedItem="{Binding EditingServer, Mode=TwoWay}"
+                                      DisplayMemberPath="Name" Padding="8,6" Background="#F8FAFC" Foreground="#0F172A" BorderBrush="#CBD5E1" FontSize="13" FontWeight="SemiBold"/>
+                        </Grid>
 
-                        <!-- Named Pipe input -->
-                        <StackPanel Visibility="{Binding IsPipeSelected, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,0,10">
-                            <TextBlock Text="{helpers:Loc Settings_PipeName}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
-                            <TextBox Text="{Binding DockerPipeName, UpdateSourceTrigger=PropertyChanged}" 
-                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6"/>
-                        </StackPanel>
+                        <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,4"
+                                Visibility="{Binding EditingServer, Converter={StaticResource NullToVisibilityConverter}}">
+                            <StackPanel>
+                                <!-- Server Name & Subfolder Grid -->
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="12"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
 
-                        <!-- TCP Endpoint input -->
-                        <StackPanel Visibility="{Binding IsTcpSelected, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,0,10">
-                            <TextBlock Text="{helpers:Loc Settings_TcpUrl}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
-                            <TextBox Text="{Binding DockerTcpUrl, UpdateSourceTrigger=PropertyChanged}" 
-                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6"/>
-                        </StackPanel>
+                                    <!-- Name -->
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="{helpers:Loc Settings_ServerNameLabel}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
+                                        <TextBox Text="{Binding EditingServer.Name, UpdateSourceTrigger=PropertyChanged}" 
+                                                 Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6"/>
+                                    </StackPanel>
 
-                        <!-- Test Docker Button -->
-                        <DockPanel Margin="0,6,0,0">
-                            <Button Content="{helpers:Loc Settings_TestDocker}" Command="{Binding TestDockerConnectionCommand}" 
-                                     Padding="14,6" Background="#2563EB" Foreground="White" BorderThickness="0" Cursor="Hand" DockPanel.Dock="Left"/>
-                            <TextBlock Text="{Binding DockerTestStatus}" Foreground="#0284C7" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"/>
-                        </DockPanel>
+                                    <!-- Subfolder -->
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="{helpers:Loc Settings_ServerSubfolderLabel}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
+                                        <TextBox Text="{Binding EditingServer.ProfilesSubfolder, UpdateSourceTrigger=PropertyChanged}" 
+                                                 Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6"/>
+                                    </StackPanel>
+                                </Grid>
+                                <TextBlock Text="{helpers:Loc Settings_ServerSubfolderTip}" FontSize="11" Foreground="#64748B" Margin="0,0,0,10"/>
+
+                                <!-- Host Type Radios -->
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                    <RadioButton Content="{helpers:Loc Settings_HostLocal}" IsChecked="{Binding IsPipeSelected}" 
+                                                 Command="{Binding SelectPipeCommand}" Foreground="#0F172A" Margin="0,0,24,0"/>
+                                    <RadioButton Content="{helpers:Loc Settings_HostTcp}" IsChecked="{Binding IsTcpSelected}" 
+                                                 Command="{Binding SelectTcpCommand}" Foreground="#0F172A"/>
+                                </StackPanel>
+
+                                <!-- Named Pipe input -->
+                                <StackPanel Visibility="{Binding IsPipeSelected, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,0,10">
+                                    <TextBlock Text="{helpers:Loc Settings_PipeName}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding EditingServer.PipeName, UpdateSourceTrigger=PropertyChanged}" 
+                                             Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6"/>
+                                </StackPanel>
+
+                                <!-- TCP Endpoint input -->
+                                <StackPanel Visibility="{Binding IsTcpSelected, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,0,10">
+                                    <TextBlock Text="{helpers:Loc Settings_TcpUrl}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding EditingServer.TcpUrl, UpdateSourceTrigger=PropertyChanged}" 
+                                             Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6"/>
+                                </StackPanel>
+
+                                <!-- Test Docker Button -->
+                                <DockPanel Margin="0,4,0,0">
+                                    <Button Content="{helpers:Loc Settings_TestDocker}" Command="{Binding TestDockerConnectionCommand}" 
+                                             Padding="14,6" Background="#2563EB" Foreground="White" BorderThickness="0" Cursor="Hand" DockPanel.Dock="Left"/>
+                                    <TextBlock Text="{Binding DockerTestStatus}" Foreground="#0284C7" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"/>
+                                </DockPanel>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </Border>
 

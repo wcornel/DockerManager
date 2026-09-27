@@ -858,6 +858,81 @@ services:
         // Reset to local pipe
         sett.Settings.DockerHostType = "Pipe";
     }
+
+    [Fact]
+    public async Task TestMultiServer_EnvironmentProfilesIsolation()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"dm_multiserver_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var cred = new CredentialService();
+            var sett = new SettingsService(cred);
+
+            // Configure app settings with 2 distinct servers
+            sett.Settings.Servers.Clear();
+            var localServer = new DockerServerEnvironment
+            {
+                Id = "srv_local",
+                Name = "Local Desktop",
+                HostType = "Pipe",
+                ProfilesSubfolder = "local"
+            };
+            var vpsServer = new DockerServerEnvironment
+            {
+                Id = "srv_vps",
+                Name = "Cloud VPS",
+                HostType = "Tcp",
+                TcpUrl = "tcp://100.64.0.1:2375",
+                ProfilesSubfolder = "vps"
+            };
+            sett.Settings.Servers.Add(localServer);
+            sett.Settings.Servers.Add(vpsServer);
+            sett.Settings.ActiveServerId = localServer.Id;
+
+            // Verify active server resolution
+            Assert.Equal("srv_local", sett.Settings.GetActiveServer().Id);
+            Assert.Equal("npipe://./pipe/docker_engine", sett.Settings.GetActiveServer().GetEffectiveUri().ToString());
+            Assert.Equal("tcp://100.64.0.1:2375", vpsServer.GetEffectiveUri().ToString());
+
+            // Test profile service isolation
+            var profService = new GitHubProfileService(sett, cred);
+            await profService.EnsureSubfoldersAndMigrateAsync(sett.Settings.Servers);
+
+            // Create profile for local server
+            var localProfile = new ProfileModel
+            {
+                Name = "DevStack",
+                Description = "Local Development Stack",
+                Services = { new ServiceDefinition { Id = "db", Image = "postgres:16" } }
+            };
+            await profService.SaveProfileLocallyAsync(localProfile, localServer.ProfilesSubfolder);
+
+            // Create profile for vps server
+            var vpsProfile = new ProfileModel
+            {
+                Name = "ProdStack",
+                Description = "Production Stack",
+                Services = { new ServiceDefinition { Id = "web", Image = "nginx:alpine" } }
+            };
+            await profService.SaveProfileLocallyAsync(vpsProfile, vpsServer.ProfilesSubfolder);
+
+            // Load profiles for local server
+            var localProfiles = await profService.LoadProfilesAsync(localServer.ProfilesSubfolder, forceRefreshFromGitHub: false);
+            Assert.Contains(localProfiles, p => p.Name == "DevStack");
+            Assert.DoesNotContain(localProfiles, p => p.Name == "ProdStack");
+
+            // Load profiles for VPS server
+            var vpsProfiles = await profService.LoadProfilesAsync(vpsServer.ProfilesSubfolder, forceRefreshFromGitHub: false);
+            Assert.Contains(vpsProfiles, p => p.Name == "ProdStack");
+            Assert.DoesNotContain(vpsProfiles, p => p.Name == "DevStack");
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
 }
 
 

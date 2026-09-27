@@ -97,11 +97,12 @@ public partial class ServiceCardViewModel : ObservableObject
 
             var host = "localhost";
             var settings = _settingsService.Settings;
-            if (settings.DockerHostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(settings.DockerTcpUrl))
+            var activeServer = settings.GetActiveServer();
+            if (activeServer.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(activeServer.TcpUrl))
             {
                 try
                 {
-                    var uri = new Uri(settings.DockerTcpUrl.Replace("tcp://", "http://"));
+                    var uri = new Uri(activeServer.TcpUrl.Replace("tcp://", "http://"));
                     host = uri.Host;
                 }
                 catch { }
@@ -286,9 +287,10 @@ public partial class ServiceCardViewModel : ObservableObject
         {
             var hostArg = "";
             var settings = _settingsService.Settings;
-            if (settings.DockerHostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(settings.DockerTcpUrl))
+            var activeServer = settings.GetActiveServer();
+            if (activeServer.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(activeServer.TcpUrl))
             {
-                hostArg = $"-H {settings.DockerTcpUrl} ";
+                hostArg = $"-H {activeServer.TcpUrl} ";
             }
 
             var script = $"Write-Host '== Verbinding maken met {ContainerName} ==' -ForegroundColor Cyan; docker {hostArg}exec -it {ContainerName} sh";
