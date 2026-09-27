@@ -1042,6 +1042,25 @@ services:
         Assert.Contains("# Container Registry: ghcr.io/mycompany", yaml);
         Assert.Contains("network_mode: host", yaml);
     }
+
+    [Fact]
+    public void TestProfileSwitchDialog_DontAskAgain_Behavior()
+    {
+        var thread = new System.Threading.Thread(() =>
+        {
+            var dialog = new ProfileSwitchDialog("old-profile");
+            Assert.NotNull(dialog);
+            Assert.False(dialog.DontAskAgain);
+            Assert.False(dialog.ShouldStopPrevious.GetValueOrDefault());
+
+            // Simulate user checking the box
+            dialog.DontAskAgainCheckBox.IsChecked = true;
+            Assert.True(dialog.DontAskAgain);
+        });
+        thread.SetApartmentState(System.Threading.ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+    }
 }
 
 

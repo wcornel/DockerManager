@@ -488,6 +488,13 @@ public partial class MainWindow : Window
                 var res = dialog.ShowDialog();
                 if (res == true)
                 {
+                    if (dialog.DontAskAgain)
+                    {
+                        _settingsService.Settings.PromptToStopPreviousProfile = false;
+                        _settingsService.Settings.DefaultKeepRunningOnSwitch = !dialog.ShouldStopPrevious.GetValueOrDefault();
+                        _settingsService.Save();
+                    }
+
                     tcs.SetResult(dialog.ShouldStopPrevious);
                 }
                 else

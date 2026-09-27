@@ -311,12 +311,19 @@ public partial class MainViewModel : ObservableObject
     private async Task HandleProfileSwitchAsync(ProfileModel oldProfile)
     {
         bool shouldStop = oldProfile.AutoStopPreviousOnSwitch;
-        if (!shouldStop && RequestSwitchProfileConfirmation != null)
+        if (!shouldStop)
         {
-            var res = await RequestSwitchProfileConfirmation.Invoke(oldProfile.Name);
-            if (res == true)
+            if (!_settingsService.Settings.PromptToStopPreviousProfile)
             {
-                shouldStop = true;
+                shouldStop = !_settingsService.Settings.DefaultKeepRunningOnSwitch;
+            }
+            else if (RequestSwitchProfileConfirmation != null)
+            {
+                var res = await RequestSwitchProfileConfirmation.Invoke(oldProfile.Name);
+                if (res == true)
+                {
+                    shouldStop = true;
+                }
             }
         }
 
