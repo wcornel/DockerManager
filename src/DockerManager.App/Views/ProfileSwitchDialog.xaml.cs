@@ -5,6 +5,7 @@ namespace DockerManager.App.Views;
 public partial class ProfileSwitchDialog : Window
 {
     public bool? ShouldStopPrevious { get; private set; } = false;
+    public bool DontAskAgain => DontAskAgainCheckBox.IsChecked == true;
 
     public ProfileSwitchDialog(string previousProfileName)
     {

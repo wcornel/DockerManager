@@ -301,6 +301,7 @@ public class LocalizationService : ILocalizationService
             ["ProfileSwitch_Tip"] = "💡 Standaard blijven containers doordraaien zodat services niet worden onderbroken. Als er een poortconflict is, kun je ze alsnog stoppen.",
             ["ProfileSwitch_StopAll"] = "⏹ Alles Stoppen",
             ["ProfileSwitch_KeepRunning"] = "▶ Laten Doordraaien (Standaard)",
+            ["ProfileSwitch_DontAskAgain"] = "Niet meer vragen en containers altijd laten doordraaien",
 
             // Import Compose Dialog
             ["ImportCompose_Title"] = "📥 Docker Compose Importeren — DockerManager",
@@ -680,6 +681,7 @@ public class LocalizationService : ILocalizationService
             ["ProfileSwitch_Tip"] = "💡 By default, containers continue running so services are not interrupted. If there is a port conflict, you can stop them at any time.",
             ["ProfileSwitch_StopAll"] = "⏹ Stop All",
             ["ProfileSwitch_KeepRunning"] = "▶ Keep Running (Default)",
+            ["ProfileSwitch_DontAskAgain"] = "Don't ask again and always keep containers running",
 
             // Import Compose Dialog
             ["ImportCompose_Title"] = "📥 Import Docker Compose — DockerManager",
