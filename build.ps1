@@ -142,10 +142,43 @@ if ($Release) {
     if ($Publish) {
         Write-Host ""
         Write-Host "Bezig met uploaden naar GitHub Releases..." -ForegroundColor Cyan
-        $tokenArg = if ($GitHubToken) { "--token $GitHubToken" } else { "" }
+        if ([string]::IsNullOrWhiteSpace($GitHubToken)) {
+            if ($env:GITHUB_TOKEN) {
+                $GitHubToken = $env:GITHUB_TOKEN
+            } else {
+                try {
+                    $p = "protocol=https`nhost=github.com`n`n"
+                    $credLines = $p | git credential fill 2>$null
+                    foreach ($line in $credLines) {
+                        if ($line -like "password=*") {
+                            $GitHubToken = $line.Substring(9).Trim()
+                            break
+                        }
+                    }
+                } catch { }
+            }
+        }
+
         try {
-            Invoke-Expression "vpk upload github --repoUrl 'https://github.com/wcornel/DockerManager' --outputDir '$ReleasesDir' --tag 'v$Version' --publish $tokenArg"
-            Write-Host "Release v$Version staat live op GitHub Releases!" -ForegroundColor Green
+            $uploadArgs = @(
+                "upload", "github",
+                "--repoUrl", "https://github.com/wcornel/DockerManager",
+                "--outputDir", $ReleasesDir,
+                "--tag", "v$Version",
+                "--releaseName", "DockerManager v$Version",
+                "--publish",
+                "--merge"
+            )
+            if (-not [string]::IsNullOrWhiteSpace($GitHubToken)) {
+                $uploadArgs += "--token"
+                $uploadArgs += $GitHubToken
+            }
+            & vpk @uploadArgs
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "Release v$Version staat live op GitHub Releases!" -ForegroundColor Green
+            } else {
+                Write-Host "Waarschuwing: vpk upload github gaf exitcode $LASTEXITCODE" -ForegroundColor Yellow
+            }
         } catch {
             Write-Host "Fout bij uploaden naar GitHub: $_" -ForegroundColor Red
         }
