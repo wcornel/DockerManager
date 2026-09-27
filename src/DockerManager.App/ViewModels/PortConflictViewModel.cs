@@ -12,6 +12,14 @@ public partial class PortConflictViewModel : ObservableObject
     private readonly IDockerService _dockerService;
     private readonly List<ProfileModel> _profiles;
     private readonly string _currentProfileName;
+    private readonly string _currentServerName;
+    private readonly bool _isRemoteServer;
+
+    public string CurrentServerName => _currentServerName;
+    public string CurrentProfileName => _currentProfileName;
+    public bool IsRemoteServer => _isRemoteServer;
+    public string ServerBadgeText => $"🖥️ Server: {_currentServerName}";
+    public string ProfileBadgeText => $"📄 Profiel: {(string.IsNullOrWhiteSpace(_currentProfileName) ? "Alle profielen" : _currentProfileName)}";
 
     [ObservableProperty]
     private bool _isScanning;
@@ -45,11 +53,15 @@ public partial class PortConflictViewModel : ObservableObject
     public PortConflictViewModel(
         IDockerService dockerService,
         IEnumerable<ProfileModel> profiles,
-        string currentProfileName = "")
+        string currentProfileName = "",
+        string currentServerName = "Lokale Docker Desktop",
+        bool isRemoteServer = false)
     {
         _dockerService = dockerService;
         _profiles = profiles.ToList();
         _currentProfileName = currentProfileName;
+        _currentServerName = string.IsNullOrWhiteSpace(currentServerName) ? "Lokale Docker Desktop" : currentServerName;
+        _isRemoteServer = isRemoteServer;
     }
 
     public async Task InitializeAsync()
@@ -62,7 +74,7 @@ public partial class PortConflictViewModel : ObservableObject
     {
         if (IsScanning) return;
         IsScanning = true;
-        StatusSummary = "Docker containers en poorten controleren...";
+        StatusSummary = $"Docker containers en poorten controleren op '{_currentServerName}'...";
 
         try
         {
@@ -74,17 +86,20 @@ public partial class PortConflictViewModel : ObservableObject
                 .Where(p => p.State.Equals("running", StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
-            // 2. Get local active TCP listeners on host OS
+            // 2. Get local active TCP listeners on host OS (only if local server, not remote VPS)
             HashSet<int> localTcpListeners = new();
-            try
+            if (!_isRemoteServer)
             {
-                var listeners = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners();
-                foreach (var ep in listeners)
+                try
                 {
-                    localTcpListeners.Add(ep.Port);
+                    var listeners = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners();
+                    foreach (var ep in listeners)
+                    {
+                        localTcpListeners.Add(ep.Port);
+                    }
                 }
+                catch { }
             }
-            catch { }
 
             // 3. Collect all ports defined across all profiles
             // Key: HostPort

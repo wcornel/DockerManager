@@ -189,6 +189,10 @@ public class LocalizationService : ILocalizationService
             // System Tray & Minimize
             ["Tray_MinimizedTip"] = "Geminimaliseerd naar het systeemvak. Containers blijven doordraaien!",
             ["Tray_Open"] = "📂 DockerManager Openen",
+            ["Tray_Server"] = "🖥️ Server",
+            ["Tray_Profile"] = "📄 Profiel",
+            ["Tray_SwitchedServer"] = "Server gewisseld naar: {0}",
+            ["Tray_SwitchedProfile"] = "Profiel gewisseld naar: {0}",
             ["Tray_StartAll"] = "▶ Start Alles",
             ["Tray_StopAll"] = "⏹ Stop Alles",
             ["Tray_UpdateAll"] = "🚀 Update Alles",
@@ -572,6 +576,10 @@ public class LocalizationService : ILocalizationService
             // System Tray & Minimize
             ["Tray_MinimizedTip"] = "Minimized to system tray. Containers continue running!",
             ["Tray_Open"] = "📂 Open DockerManager",
+            ["Tray_Server"] = "🖥️ Server",
+            ["Tray_Profile"] = "📄 Profile",
+            ["Tray_SwitchedServer"] = "Server switched to: {0}",
+            ["Tray_SwitchedProfile"] = "Profile switched to: {0}",
             ["Tray_StartAll"] = "▶ Start All",
             ["Tray_StopAll"] = "⏹ Stop All",
             ["Tray_UpdateAll"] = "🚀 Update All",

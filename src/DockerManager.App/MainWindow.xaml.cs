@@ -48,7 +48,7 @@ public partial class MainWindow : Window
 
         LocalizationService.Instance.SetLanguage(_settingsService.Settings.Language);
 
-        _viewModel.RequestOpenSettings += ShowSettingsDialog;
+        _viewModel.RequestOpenSettings += () => ShowSettingsDialog();
         _viewModel.RequestOpenGitHubLogin += ShowGitHubLoginDialog;
         _viewModel.RequestOpenProfileSettings += ShowProfileSettingsDialog;
         _viewModel.RequestConfirmDeleteProfile += ConfirmDeleteProfileAsync;
@@ -59,6 +59,14 @@ public partial class MainWindow : Window
         _viewModel.RequestRestoreBackup += HandleRestoreBackupAsync;
         _viewModel.RequestCheckPortConflicts += ShowPortConflictDialog;
         _viewModel.RequestSwitchProfileConfirmation += ShowProfileSwitchDialogAsync;
+
+        _viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainViewModel.SelectedServer) || e.PropertyName == nameof(MainViewModel.SelectedProfile))
+            {
+                UpdateTrayTooltip();
+            }
+        };
 
         RestoreWindowBounds();
         InitializeTrayIcon();
@@ -283,11 +291,14 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ShowSettingsDialog()
+    private void ShowSettingsDialog(string? targetServerId = null, string? targetProfileName = null)
     {
         try
         {
-            var settingsVm = new SettingsViewModel(_settingsService, _credentialService, _gitHubProfileService, _dockerService, _cloudflareService);
+            var serverId = targetServerId ?? _viewModel.SelectedServer?.Id;
+            var profileName = targetProfileName ?? _viewModel.SelectedProfile?.Name;
+            var settingsVm = new SettingsViewModel(_settingsService, _credentialService, _gitHubProfileService, _dockerService, _cloudflareService, _gitHubAuthService);
+            settingsVm.InitializeTabs(serverId, profileName);
             var dialog = new SettingsDialog(settingsVm, _gitHubAuthService, _credentialService, _settingsService)
             {
                 Owner = this
@@ -387,43 +398,7 @@ public partial class MainWindow : Window
 
     private void ShowProfileSettingsDialog(ProfileModel profile)
     {
-        try
-        {
-            var vm = new ProfileSettingsViewModel(
-                profile,
-                _viewModel.Profiles,
-                _settingsService,
-                _credentialService,
-                _cloudflareService,
-                _dockerService,
-                _gitHubProfileService);
-
-            var dialog = new ProfileSettingsDialog(vm)
-            {
-                Owner = this
-            };
-
-            if (dialog.ShowDialog() == true)
-            {
-                _viewModel.Profiles.Clear();
-                foreach (var p in vm.Profiles)
-                {
-                    _viewModel.Profiles.Add(p);
-                }
-
-                var targetProfile = _viewModel.Profiles.FirstOrDefault(p => p.Name.Equals(vm.EditingProfile?.Name, StringComparison.OrdinalIgnoreCase))
-                                    ?? _viewModel.Profiles.FirstOrDefault();
-                _viewModel.SelectedProfile = targetProfile;
-
-                _viewModel.RebuildServiceCards();
-                _ = _viewModel.RefreshAllCardStatusesAsync();
-                _viewModel.StatusNotification = $"💾 Profielen succesvol bijgewerkt!";
-            }
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"Fout bij openen van profielinstellingen: {ex.Message}", "Fout", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
+        ShowSettingsDialog(_viewModel.SelectedServer?.Id, profile?.Name);
     }
 
     private Task<bool> ConfirmDeleteProfileAsync(ProfileModel profile)
@@ -458,7 +433,10 @@ public partial class MainWindow : Window
     {
         try
         {
-            var conflictVm = new PortConflictViewModel(_dockerService, _viewModel.Profiles, _viewModel.SelectedProfile?.Name ?? "");
+            var server = _viewModel.SelectedServer;
+            var serverName = server?.Name ?? "Lokale Docker Desktop";
+            var isRemote = server != null && server.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase);
+            var conflictVm = new PortConflictViewModel(_dockerService, _viewModel.Profiles, _viewModel.SelectedProfile?.Name ?? "", serverName, isRemote);
             var dialog = new PortConflictDialog(conflictVm)
             {
                 Owner = this
@@ -731,8 +709,24 @@ public partial class MainWindow : Window
     private void BuildTrayContextMenu()
     {
         if (_notifyIcon == null) return;
-        var loc = LocalizationService.Instance;
         var contextMenu = new System.Windows.Forms.ContextMenuStrip();
+
+        PopulateTrayContextMenu(contextMenu);
+
+        contextMenu.Opening += (_, _) =>
+        {
+            PopulateTrayContextMenu(contextMenu);
+        };
+
+        _notifyIcon.ContextMenuStrip = contextMenu;
+        UpdateTrayTooltip();
+    }
+
+    private void PopulateTrayContextMenu(System.Windows.Forms.ContextMenuStrip contextMenu)
+    {
+        if (_notifyIcon == null) return;
+        var loc = LocalizationService.Instance;
+        contextMenu.Items.Clear();
 
         var openItem = new System.Windows.Forms.ToolStripMenuItem(loc.Get("Tray_Open"), null, (_, _) => RestoreWindow());
         openItem.Font = new System.Drawing.Font(openItem.Font, System.Drawing.FontStyle.Bold);
@@ -740,10 +734,69 @@ public partial class MainWindow : Window
 
         contextMenu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
 
-        contextMenu.Items.Add(new System.Windows.Forms.ToolStripMenuItem(loc.Get("Tray_StartAll"), null, (_, _) => _ = _viewModel.StartAllCommand.ExecuteAsync(null)));
-        contextMenu.Items.Add(new System.Windows.Forms.ToolStripMenuItem(loc.Get("Tray_StopAll"), null, (_, _) => _ = _viewModel.StopAllCommand.ExecuteAsync(null)));
-        contextMenu.Items.Add(new System.Windows.Forms.ToolStripMenuItem(loc.Get("Tray_UpdateAll"), null, (_, _) => _ = _viewModel.UpdateAllCommand.ExecuteAsync(null)));
-        contextMenu.Items.Add(new System.Windows.Forms.ToolStripMenuItem(loc.Get("Tray_BackupVolumes"), null, (_, _) => _ = _viewModel.BackupVolumesCommand.ExecuteAsync(null)));
+        var currentServer = _viewModel.SelectedServer;
+        var currentServerName = currentServer?.Name ?? "Lokaal";
+
+        // Server menu item with dropdown
+        var serverMenuItem = new System.Windows.Forms.ToolStripMenuItem($"{loc.Get("Tray_Server")}: {currentServerName}");
+        serverMenuItem.Font = new System.Drawing.Font(serverMenuItem.Font, System.Drawing.FontStyle.Bold);
+
+        foreach (var server in _viewModel.Servers)
+        {
+            var isCurrent = currentServer != null && server.Id.Equals(currentServer.Id, StringComparison.OrdinalIgnoreCase);
+            var item = new System.Windows.Forms.ToolStripMenuItem((isCurrent ? "✓ " : "    ") + server.Name, null, (_, _) =>
+            {
+                if (!isCurrent)
+                {
+                    _viewModel.SelectedServer = server;
+                    UpdateTrayTooltip();
+                    _notifyIcon?.ShowBalloonTip(1500, "DockerManager", string.Format(loc.Get("Tray_SwitchedServer"), server.Name), System.Windows.Forms.ToolTipIcon.Info);
+                }
+            })
+            {
+                Checked = isCurrent
+            };
+            serverMenuItem.DropDownItems.Add(item);
+        }
+        contextMenu.Items.Add(serverMenuItem);
+
+        // Profile menu item with dropdown
+        var currentProfile = _viewModel.SelectedProfile;
+        var currentProfileName = currentProfile?.Name ?? "(Geen profiel)";
+
+        var profileMenuItem = new System.Windows.Forms.ToolStripMenuItem($"{loc.Get("Tray_Profile")}: {currentProfileName}");
+        profileMenuItem.Font = new System.Drawing.Font(profileMenuItem.Font, System.Drawing.FontStyle.Bold);
+
+        foreach (var profile in _viewModel.Profiles)
+        {
+            var isCurrent = currentProfile != null && profile.Name.Equals(currentProfile.Name, StringComparison.OrdinalIgnoreCase);
+            var item = new System.Windows.Forms.ToolStripMenuItem((isCurrent ? "✓ " : "    ") + profile.Name, null, (_, _) =>
+            {
+                if (!isCurrent)
+                {
+                    _viewModel.SelectedProfile = profile;
+                    UpdateTrayTooltip();
+                    _notifyIcon?.ShowBalloonTip(1500, "DockerManager", string.Format(loc.Get("Tray_SwitchedProfile"), profile.Name), System.Windows.Forms.ToolTipIcon.Info);
+                }
+            })
+            {
+                Checked = isCurrent
+            };
+            profileMenuItem.DropDownItems.Add(item);
+        }
+        contextMenu.Items.Add(profileMenuItem);
+
+        contextMenu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+
+        var startText = string.IsNullOrEmpty(currentProfileName) ? loc.Get("Tray_StartAll") : $"{loc.Get("Tray_StartAll")} ({currentProfileName})";
+        var stopText = string.IsNullOrEmpty(currentProfileName) ? loc.Get("Tray_StopAll") : $"{loc.Get("Tray_StopAll")} ({currentProfileName})";
+        var updateText = string.IsNullOrEmpty(currentProfileName) ? loc.Get("Tray_UpdateAll") : $"{loc.Get("Tray_UpdateAll")} ({currentProfileName})";
+        var backupText = string.IsNullOrEmpty(currentProfileName) ? loc.Get("Tray_BackupVolumes") : $"{loc.Get("Tray_BackupVolumes")} ({currentProfileName})";
+
+        contextMenu.Items.Add(new System.Windows.Forms.ToolStripMenuItem(startText, null, (_, _) => _ = _viewModel.StartAllCommand.ExecuteAsync(null)));
+        contextMenu.Items.Add(new System.Windows.Forms.ToolStripMenuItem(stopText, null, (_, _) => _ = _viewModel.StopAllCommand.ExecuteAsync(null)));
+        contextMenu.Items.Add(new System.Windows.Forms.ToolStripMenuItem(updateText, null, (_, _) => _ = _viewModel.UpdateAllCommand.ExecuteAsync(null)));
+        contextMenu.Items.Add(new System.Windows.Forms.ToolStripMenuItem(backupText, null, (_, _) => _ = _viewModel.BackupVolumesCommand.ExecuteAsync(null)));
         contextMenu.Items.Add(new System.Windows.Forms.ToolStripMenuItem(loc.Get("Tray_CheckPorts"), null, (_, _) =>
         {
             RestoreWindow();
@@ -762,7 +815,20 @@ public partial class MainWindow : Window
             Application.Current.Shutdown();
         }));
 
-        _notifyIcon.ContextMenuStrip = contextMenu;
+        UpdateTrayTooltip();
+    }
+
+    private void UpdateTrayTooltip()
+    {
+        if (_notifyIcon == null) return;
+        var server = _viewModel.SelectedServer?.Name ?? "Docker";
+        var profile = _viewModel.SelectedProfile?.Name ?? "Geen profiel";
+        var text = $"DockerManager — {server} ({profile})";
+        if (text.Length > 63)
+        {
+            text = text.Substring(0, 60) + "...";
+        }
+        _notifyIcon.Text = text;
     }
 
     public void RestoreWindow()

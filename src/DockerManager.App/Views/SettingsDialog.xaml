@@ -6,239 +6,458 @@
         xmlns:vm="clr-namespace:DockerManager.App.ViewModels"
         xmlns:helpers="clr-namespace:DockerManager.App.Helpers"
         mc:Ignorable="d"
-        Title="{helpers:Loc Settings_Title}" Height="640" Width="660"
+        Title="{helpers:Loc Menu_Settings}" Height="760" Width="820"
         WindowStartupLocation="CenterOwner"
-        ResizeMode="NoResize"
+        ResizeMode="CanResize" MinHeight="620" MinWidth="700"
         Icon="pack://application:,,,/DockerManager.App;component/app.ico"
         Background="#F8FAFC" Foreground="#0F172A">
 
-    <Grid Margin="20">
+    <Window.Resources>
+        <!-- DataTemplate for GeneralSettingsTabViewModel -->
+        <DataTemplate DataType="{x:Type vm:GeneralSettingsTabViewModel}">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="4,8,8,8">
+                <StackPanel>
+                    <!-- Preferences Section -->
+                    <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,16">
+                        <StackPanel>
+                            <TextBlock Text="{helpers:Loc Settings_AppPreferences}" FontSize="15" FontWeight="SemiBold" Foreground="#059669" Margin="0,0,0,12"/>
+
+                            <!-- Language -->
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="16"/>
+                                    <ColumnDefinition Width="240"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                    <TextBlock Text="{helpers:Loc Settings_Language}" FontSize="12.5" FontWeight="SemiBold" Foreground="#334155"/>
+                                    <TextBlock Text="Nederlands (NL) / English (EN)" FontSize="11" Foreground="#64748B"/>
+                                </StackPanel>
+                                <ComboBox Grid.Column="2" ItemsSource="{Binding AvailableLanguages}" SelectedItem="{Binding SelectedLanguageDisplay, Mode=TwoWay}"
+                                          Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <Border Height="1" Background="#E2E8F0" Margin="0,0,0,12"/>
+
+                            <CheckBox Content="{helpers:Loc Settings_AutoCheckProfiles}" IsChecked="{Binding AutoCheckUpdatesOnStart}" 
+                                      Foreground="#0F172A" Margin="0,0,0,10"/>
+
+                            <Grid Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="12"/>
+                                    <ColumnDefinition Width="160"/>
+                                </Grid.ColumnDefinitions>
+                                <CheckBox Grid.Column="0" Content="{helpers:Loc Settings_AutoCheckImages}" 
+                                          IsChecked="{Binding AutoCheckImageUpdates}" Foreground="#0F172A" VerticalAlignment="Center"/>
+                                <ComboBox Grid.Column="2" ItemsSource="{Binding AvailableFrequencies}" SelectedItem="{Binding UpdateCheckFrequency}"
+                                          IsEnabled="{Binding AutoCheckImageUpdates}"
+                                          Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4"/>
+                            </Grid>
+
+                            <CheckBox Content="{helpers:Loc Settings_KeepRunningOnSwitch}" IsChecked="{Binding DefaultKeepRunningOnSwitch}" 
+                                      Foreground="#0F172A" Margin="0,0,0,10"/>
+
+                            <CheckBox Content="{helpers:Loc Settings_ConfirmOnSwitch}" IsChecked="{Binding PromptToStopPreviousProfile}" 
+                                      Foreground="#0F172A"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- GitHub Section -->
+                    <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="16">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,6">
+                                <TextBlock Text="{helpers:Loc Settings_GitHubSection}" FontSize="15" FontWeight="SemiBold" Foreground="#4F46E5" DockPanel.Dock="Left"/>
+                                <TextBlock Text="{helpers:Loc Settings_RegistriesDpapi}" FontSize="11" Foreground="#16A34A" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </DockPanel>
+                            <TextBlock Text="{helpers:Loc Settings_GitHubDesc}" 
+                                       FontSize="12" Foreground="#64748B" TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+                            <!-- Ingelogd status card -->
+                            <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="12,10" Margin="0,0,0,12">
+                                <DockPanel LastChildFill="True">
+                                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
+                                        <Button Content="{helpers:Loc Settings_GitHubLoginBtn}" Command="{Binding OpenGitHubLoginCommand}"
+                                                Padding="12,6" Background="#4F46E5" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" FontWeight="SemiBold"
+                                                Visibility="{Binding IsLoggedIn, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
+                                        <Button Content="{helpers:Loc Settings_GitHubLogoutBtn}" Command="{Binding LogoutGitHubCommand}"
+                                                Padding="10,5" Background="#FEE2E2" Foreground="#DC2626" BorderBrush="#FECACA" BorderThickness="1" Cursor="Hand"
+                                                Visibility="{Binding IsLoggedIn, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                    </StackPanel>
+
+                                    <StackPanel VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Text="🐙 " FontSize="14"/>
+                                            <TextBlock Text="{helpers:Loc Settings_GitHubLoggedInAs}" FontWeight="SemiBold" Foreground="#334155" FontSize="12.5" Margin="0,0,6,0"
+                                                       Visibility="{Binding IsLoggedIn, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                            <Border Background="#DCFCE7" CornerRadius="4" Padding="6,2" Margin="0,0,6,0"
+                                                    Visibility="{Binding IsLoggedIn, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                <TextBlock Text="{Binding LoggedInUsername, StringFormat='👤 {0}'}" Foreground="#15803D" FontSize="12" FontWeight="Bold"/>
+                                            </Border>
+                                            <TextBlock Text="{helpers:Loc Settings_GitHubNotLoggedIn}" Foreground="#64748B" FontSize="12.5"
+                                                       Visibility="{Binding IsLoggedIn, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+
+                            <!-- Community Repo info -->
+                            <Grid Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="12"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="{helpers:Loc Settings_GitHubRepoOwnerLabel}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding GitHubRepoOwner, UpdateSourceTrigger=PropertyChanged}" 
+                                             Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="{helpers:Loc Settings_GitHubRepoNameLabel}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding GitHubRepoName, UpdateSourceTrigger=PropertyChanged}" 
+                                             Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <DockPanel Margin="0,2,0,0">
+                                <Button Content="{helpers:Loc Settings_TestGitHub}" Command="{Binding TestGitHubConnectionCommand}"
+                                        Padding="14,6" Background="#4F46E5" Foreground="White" BorderThickness="0" Cursor="Hand" DockPanel.Dock="Left"/>
+                                <TextBlock Text="{Binding GitHubTestStatus}" Foreground="#0284C7" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"/>
+                            </DockPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </DataTemplate>
+
+        <!-- DataTemplate for ServerSettingsTabViewModel -->
+        <DataTemplate DataType="{x:Type vm:ServerSettingsTabViewModel}">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="4,8,8,8">
+                <StackPanel>
+                    <!-- 1. Docker Server Verbinding -->
+                    <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,16">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,12">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" DockPanel.Dock="Left">
+                                    <TextBlock Text="🖥️ " FontSize="16"/>
+                                    <TextBlock Text="Docker Server Verbinding" FontSize="15" FontWeight="SemiBold" Foreground="#0284C7"/>
+                                </StackPanel>
+                                <Button Content="🗑️ Server Verwijderen" Command="{Binding DeleteServerCommand}" 
+                                        Padding="10,4" Background="#FEF2F2" Foreground="#DC2626" BorderBrush="#FECACA" BorderThickness="1" Cursor="Hand" HorizontalAlignment="Right"/>
+                            </DockPanel>
+
+                            <Grid Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="12"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="{helpers:Loc Settings_ServerNameLabel}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" 
+                                             Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6" FontSize="13" FontWeight="SemiBold"/>
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="{helpers:Loc Settings_ServerSubfolderLabel}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding ProfilesSubfolder, UpdateSourceTrigger=PropertyChanged}" 
+                                             Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6"/>
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock Text="{helpers:Loc Settings_ServerSubfolderTip}" FontSize="11" Foreground="#64748B" Margin="0,0,0,12"/>
+
+                            <!-- Host Type Radios -->
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                <RadioButton Content="{helpers:Loc Settings_HostLocal}" IsChecked="{Binding IsPipeSelected}" 
+                                             Command="{Binding SelectPipeCommand}" Foreground="#0F172A" Margin="0,0,24,0" FontWeight="Medium"/>
+                                <RadioButton Content="{helpers:Loc Settings_HostTcp}" IsChecked="{Binding IsTcpSelected}" 
+                                             Command="{Binding SelectTcpCommand}" Foreground="#0F172A" FontWeight="Medium"/>
+                            </StackPanel>
+
+                            <!-- Pipe Name -->
+                            <StackPanel Visibility="{Binding IsPipeSelected, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,0,10">
+                                <TextBlock Text="{helpers:Loc Settings_PipeName}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
+                                <TextBox Text="{Binding PipeName, UpdateSourceTrigger=PropertyChanged}" 
+                                         Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6" FontFamily="Consolas"/>
+                            </StackPanel>
+
+                            <!-- TCP URL -->
+                            <StackPanel Visibility="{Binding IsTcpSelected, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,0,10">
+                                <TextBlock Text="{helpers:Loc Settings_TcpUrl}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
+                                <TextBox Text="{Binding TcpUrl, UpdateSourceTrigger=PropertyChanged}" 
+                                         Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6" FontFamily="Consolas"/>
+                            </StackPanel>
+
+                            <!-- Test Docker Button -->
+                            <DockPanel Margin="0,4,0,0">
+                                <Button Content="{helpers:Loc Settings_TestDocker}" Command="{Binding TestDockerConnectionCommand}" 
+                                        Padding="14,6" Background="#2563EB" Foreground="White" BorderThickness="0" Cursor="Hand" DockPanel.Dock="Left" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding DockerTestStatus}" Foreground="#0284C7" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"/>
+                            </DockPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 2. Profielen op deze Server -->
+                    <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="16">
+                        <StackPanel>
+                            <!-- Profile Selector Bar -->
+                            <DockPanel Margin="0,0,0,12">
+                                <TextBlock Text="📁 Profielen op deze server" FontSize="15" FontWeight="SemiBold" Foreground="#4F46E5" VerticalAlignment="Center" DockPanel.Dock="Left"/>
+                                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                                    <Button Content="➕ Nieuw Profiel" Command="{Binding AddProfileCommand}" 
+                                            Padding="10,4" Margin="0,0,6,0" Background="#F0FDF4" Foreground="#16A34A" BorderBrush="#BBF7D0" BorderThickness="1" Cursor="Hand" FontWeight="SemiBold"/>
+                                    <Button Content="🗑️ Profiel Verwijderen" Command="{Binding DeleteProfileCommand}" 
+                                            Padding="10,4" Background="#FEF2F2" Foreground="#DC2626" BorderBrush="#FECACA" BorderThickness="1" Cursor="Hand"/>
+                                </StackPanel>
+                            </DockPanel>
+
+                            <!-- Profile Picker -->
+                            <Grid Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Kies profiel:" FontSize="12.5" Foreground="#475569" FontWeight="Medium" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <ComboBox Grid.Column="1" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile, Mode=TwoWay}"
+                                          DisplayMemberPath="Name" Padding="8,6" Background="#F8FAFC" Foreground="#0F172A" BorderBrush="#CBD5E1" FontSize="13" FontWeight="Bold"/>
+                            </Grid>
+
+                            <!-- Active Profile Settings Card -->
+                            <StackPanel DataContext="{Binding SelectedProfile}" Visibility="{Binding DataContext.SelectedProfile, RelativeSource={RelativeSource AncestorType=Border}, Converter={StaticResource NullToVisibilityConverter}}">
+                                <!-- Profile General Info -->
+                                <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,12">
+                                    <StackPanel>
+                                        <TextBlock Text="Algemene Profielgegevens" FontSize="13" FontWeight="SemiBold" Foreground="#334155" Margin="0,0,0,8"/>
+                                        <Grid Margin="0,0,0,8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="130"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="Profielnaam:" FontSize="12" Foreground="#475569" VerticalAlignment="Center"/>
+                                            <TextBox Grid.Column="1" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" 
+                                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,5" FontSize="13" FontWeight="SemiBold"/>
+                                        </Grid>
+                                        <Grid Margin="0,0,0,8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="130"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="Omschrijving:" FontSize="12" Foreground="#475569" VerticalAlignment="Center"/>
+                                            <TextBox Grid.Column="1" Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}" 
+                                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,5" FontSize="12.5"/>
+                                        </Grid>
+                                        <CheckBox IsChecked="{Binding AutoStopPreviousOnSwitch}" Margin="130,4,0,0">
+                                            <TextBlock Text="Containers van dit profiel automatisch stoppen bij wisselen" FontSize="12" Foreground="#475569"/>
+                                        </CheckBox>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Quick Copy ("Overnemen van...") -->
+                                <Border Background="#EFF6FF" BorderBrush="#BFDBFE" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,12">
+                                    <StackPanel>
+                                        <DockPanel Margin="0,0,0,8">
+                                            <TextBlock Text="⚡ Snelle Overname" FontSize="13" FontWeight="Bold" Foreground="#1D4ED8" VerticalAlignment="Center"/>
+                                            <TextBlock Text="Kopieer API/Registry gegevens van een ander profiel" FontSize="11" Foreground="#3B82F6" DockPanel.Dock="Right" VerticalAlignment="Center"/>
+                                        </DockPanel>
+
+                                        <Grid Margin="0,0,0,8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="Overnemen van:" FontSize="12" Foreground="#1E40AF" FontWeight="Medium" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                            <ComboBox Grid.Column="1" ItemsSource="{Binding CopySources}" SelectedItem="{Binding SelectedCopySource, Mode=TwoWay}"
+                                                      DisplayMemberPath="DisplayName" Padding="8,5" Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#93C5FD" FontSize="12" FontWeight="SemiBold"/>
+                                        </Grid>
+
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                            <Button Content="Kopieer Cloudflare" Command="{Binding CopyCloudflareSettingsCommand}"
+                                                    Padding="10,4" Margin="0,0,6,0" Background="#DBEAFE" Foreground="#1E40AF" BorderBrush="#BFDBFE" BorderThickness="1" Cursor="Hand" FontSize="11.5"/>
+                                            <Button Content="Kopieer Registry" Command="{Binding CopyRegistrySettingsCommand}"
+                                                    Padding="10,4" Margin="0,0,6,0" Background="#DBEAFE" Foreground="#1E40AF" BorderBrush="#BFDBFE" BorderThickness="1" Cursor="Hand" FontSize="11.5"/>
+                                            <Button Content="Kopieer Alles" Command="{Binding CopyAllSettingsCommand}"
+                                                    Padding="12,4" Background="#2563EB" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" FontWeight="Bold" FontSize="11.5"/>
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding CopyStatusMessage}" FontSize="11.5" FontWeight="SemiBold" Foreground="#16A34A" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Cloudflare Tunnel & Domain -->
+                                <Border Background="#FFF7ED" BorderBrush="#FED7AA" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,12">
+                                    <StackPanel>
+                                        <DockPanel Margin="0,0,0,8">
+                                            <TextBlock Text="☁️ Cloudflare Tunnel &amp; Domein" FontSize="13" FontWeight="Bold" Foreground="#C2410C" VerticalAlignment="Center"/>
+                                            <TextBlock Text="Optioneel voor publieke URL's via Cloudflare" FontSize="11" Foreground="#9A3412" DockPanel.Dock="Right" VerticalAlignment="Center"/>
+                                        </DockPanel>
+
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="130"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="Domein:" FontSize="12" Foreground="#475569" VerticalAlignment="Center"/>
+                                            <TextBox Grid.Column="1" Text="{Binding CloudflareDomain, UpdateSourceTrigger=PropertyChanged}" 
+                                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,4" FontSize="12"/>
+                                        </Grid>
+
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="130"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="Account ID:" FontSize="12" Foreground="#475569" VerticalAlignment="Center"/>
+                                            <TextBox Grid.Column="1" Text="{Binding CloudflareAccountId, UpdateSourceTrigger=PropertyChanged}" 
+                                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,4" FontSize="11.5" FontFamily="Consolas"/>
+                                        </Grid>
+
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="130"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="Tunnel ID:" FontSize="12" Foreground="#475569" VerticalAlignment="Center"/>
+                                            <TextBox Grid.Column="1" Text="{Binding CloudflareTunnelId, UpdateSourceTrigger=PropertyChanged}" 
+                                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,4" FontSize="11.5" FontFamily="Consolas"/>
+                                        </Grid>
+
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="130"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="API Token:" FontSize="12" Foreground="#475569" VerticalAlignment="Center"/>
+                                            <TextBox Grid.Column="1" Text="{Binding CloudflareApiToken, UpdateSourceTrigger=PropertyChanged}" 
+                                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,4" FontSize="11.5" FontFamily="Consolas"/>
+                                        </Grid>
+
+                                        <Grid Margin="0,0,0,8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="130"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="Tunnel Token:" FontSize="12" Foreground="#475569" VerticalAlignment="Center"/>
+                                            <TextBox Grid.Column="1" Text="{Binding CloudflareTunnelToken, UpdateSourceTrigger=PropertyChanged}" 
+                                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,4" FontSize="11.5" FontFamily="Consolas"/>
+                                        </Grid>
+
+                                        <DockPanel>
+                                            <Button Content="Test Cloudflare" Command="{Binding TestCloudflareCommand}"
+                                                    Padding="12,4" Background="#FFEDD5" Foreground="#C2410C" BorderBrush="#FDBA74" BorderThickness="1" Cursor="Hand" FontWeight="SemiBold" FontSize="11.5" DockPanel.Dock="Left"/>
+                                            <TextBlock Text="{Binding CloudflareTestStatus}" FontSize="11.5" Foreground="#334155" VerticalAlignment="Center" Margin="10,0,0,0" TextWrapping="Wrap"/>
+                                        </DockPanel>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Container Registry -->
+                                <Border Background="#EEF2FF" BorderBrush="#C7D2FE" BorderThickness="1" CornerRadius="6" Padding="12">
+                                    <StackPanel>
+                                        <DockPanel Margin="0,0,0,8">
+                                            <TextBlock Text="📦 Container Registry (Inlog per Profiel)" FontSize="13" FontWeight="Bold" Foreground="#4338CA" VerticalAlignment="Center"/>
+                                            <TextBlock Text="Voor privé images (ghcr.io, Docker Hub, etc.)" FontSize="11" Foreground="#6366F1" DockPanel.Dock="Right" VerticalAlignment="Center"/>
+                                        </DockPanel>
+
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="130"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="Registry Server:" FontSize="12" Foreground="#475569" VerticalAlignment="Center"/>
+                                            <TextBox Grid.Column="1" Text="{Binding RegistryServer, UpdateSourceTrigger=PropertyChanged}" 
+                                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,4" FontSize="12"/>
+                                        </Grid>
+
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="130"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="Namespace:" FontSize="12" Foreground="#475569" VerticalAlignment="Center"/>
+                                            <TextBox Grid.Column="1" Text="{Binding RegistryNamespace, UpdateSourceTrigger=PropertyChanged}" 
+                                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,4" FontSize="12"/>
+                                        </Grid>
+
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="130"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="Username:" FontSize="12" Foreground="#475569" VerticalAlignment="Center"/>
+                                            <TextBox Grid.Column="1" Text="{Binding RegistryUsername, UpdateSourceTrigger=PropertyChanged}" 
+                                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,4" FontSize="12"/>
+                                        </Grid>
+
+                                        <Grid Margin="0,0,0,8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="130"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="Password/Token:" FontSize="12" Foreground="#475569" VerticalAlignment="Center"/>
+                                            <TextBox Grid.Column="1" Text="{Binding RegistryPassword, UpdateSourceTrigger=PropertyChanged}" 
+                                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,4" FontSize="11.5" FontFamily="Consolas"/>
+                                        </Grid>
+
+                                        <DockPanel>
+                                            <Button Content="Test Registry" Command="{Binding TestRegistryCommand}"
+                                                    Padding="12,4" Background="#E0E7FF" Foreground="#4338CA" BorderBrush="#A5B4FC" BorderThickness="1" Cursor="Hand" FontWeight="SemiBold" FontSize="11.5" DockPanel.Dock="Left"/>
+                                            <TextBlock Text="{Binding RegistryTestStatus}" FontSize="11.5" Foreground="#334155" VerticalAlignment="Center" Margin="10,0,0,0" TextWrapping="Wrap"/>
+                                        </DockPanel>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid Margin="18">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/> <!-- Header -->
+            <RowDefinition Height="*"/>    <!-- TabControl -->
+            <RowDefinition Height="Auto"/> <!-- Footer -->
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <StackPanel Grid.Row="0" Margin="0,0,0,16">
-            <TextBlock Text="{helpers:Loc Menu_Settings}" FontSize="20" FontWeight="Bold" Foreground="#0F172A"/>
-            <TextBlock Text="{helpers:Loc Settings_Subheader}" 
-                       FontSize="13" Foreground="#64748B" Margin="0,4,0,0"/>
-        </StackPanel>
-
-        <!-- Content Body (Scrollable) -->
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+        <Grid Grid.Row="0" Margin="0,0,0,12">
             <StackPanel>
-
-                <!-- Section 1: Docker Servers & Omgevingen -->
-                <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,16">
-                    <StackPanel>
-                        <DockPanel Margin="0,0,0,8">
-                            <TextBlock Text="{helpers:Loc Settings_DockerServers}" FontSize="15" FontWeight="SemiBold" Foreground="#0284C7" VerticalAlignment="Center"/>
-                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
-                                <Button Content="{helpers:Loc Settings_AddServerBtn}" Command="{Binding AddServerCommand}" 
-                                        Padding="10,4" Margin="0,0,6,0" Background="#F0FDF4" Foreground="#16A34A" BorderBrush="#BBF7D0" BorderThickness="1" Cursor="Hand" FontWeight="SemiBold"/>
-                                <Button Content="{helpers:Loc Settings_DeleteServerBtn}" Command="{Binding DeleteServerCommand}" 
-                                        Padding="10,4" Background="#FEF2F2" Foreground="#DC2626" BorderBrush="#FECACA" BorderThickness="1" Cursor="Hand"/>
-                            </StackPanel>
-                        </DockPanel>
-                        <TextBlock Text="{helpers:Loc Settings_ServersDescription}"
-                                   FontSize="12" Foreground="#64748B" TextWrapping="Wrap" Margin="0,0,0,12"/>
-
-                        <!-- Server Kiezer -->
-                        <Grid Margin="0,0,0,12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="{helpers:Loc Settings_SelectServer}" FontSize="12" Foreground="#475569" FontWeight="Medium" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                            <ComboBox Grid.Column="1" ItemsSource="{Binding Servers}" SelectedItem="{Binding EditingServer, Mode=TwoWay}"
-                                      DisplayMemberPath="Name" Padding="8,6" Background="#F8FAFC" Foreground="#0F172A" BorderBrush="#CBD5E1" FontSize="13" FontWeight="SemiBold"/>
-                        </Grid>
-
-                        <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,4"
-                                Visibility="{Binding EditingServer, Converter={StaticResource NullToVisibilityConverter}}">
-                            <StackPanel>
-                                <!-- Server Name & Subfolder Grid -->
-                                <Grid Margin="0,0,0,10">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="12"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-
-                                    <!-- Name -->
-                                    <StackPanel Grid.Column="0">
-                                        <TextBlock Text="{helpers:Loc Settings_ServerNameLabel}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
-                                        <TextBox Text="{Binding EditingServer.Name, UpdateSourceTrigger=PropertyChanged}" 
-                                                 Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6"/>
-                                    </StackPanel>
-
-                                    <!-- Subfolder -->
-                                    <StackPanel Grid.Column="2">
-                                        <TextBlock Text="{helpers:Loc Settings_ServerSubfolderLabel}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
-                                        <TextBox Text="{Binding EditingServer.ProfilesSubfolder, UpdateSourceTrigger=PropertyChanged}" 
-                                                 Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6"/>
-                                    </StackPanel>
-                                </Grid>
-                                <TextBlock Text="{helpers:Loc Settings_ServerSubfolderTip}" FontSize="11" Foreground="#64748B" Margin="0,0,0,10"/>
-
-                                <!-- Host Type Radios -->
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                    <RadioButton Content="{helpers:Loc Settings_HostLocal}" IsChecked="{Binding IsPipeSelected}" 
-                                                 Command="{Binding SelectPipeCommand}" Foreground="#0F172A" Margin="0,0,24,0"/>
-                                    <RadioButton Content="{helpers:Loc Settings_HostTcp}" IsChecked="{Binding IsTcpSelected}" 
-                                                 Command="{Binding SelectTcpCommand}" Foreground="#0F172A"/>
-                                </StackPanel>
-
-                                <!-- Named Pipe input -->
-                                <StackPanel Visibility="{Binding IsPipeSelected, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,0,10">
-                                    <TextBlock Text="{helpers:Loc Settings_PipeName}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
-                                    <TextBox Text="{Binding EditingServer.PipeName, UpdateSourceTrigger=PropertyChanged}" 
-                                             Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6"/>
-                                </StackPanel>
-
-                                <!-- TCP Endpoint input -->
-                                <StackPanel Visibility="{Binding IsTcpSelected, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,0,10">
-                                    <TextBlock Text="{helpers:Loc Settings_TcpUrl}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
-                                    <TextBox Text="{Binding EditingServer.TcpUrl, UpdateSourceTrigger=PropertyChanged}" 
-                                             Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6"/>
-                                </StackPanel>
-
-                                <!-- Test Docker Button -->
-                                <DockPanel Margin="0,4,0,0">
-                                    <Button Content="{helpers:Loc Settings_TestDocker}" Command="{Binding TestDockerConnectionCommand}" 
-                                             Padding="14,6" Background="#2563EB" Foreground="White" BorderThickness="0" Cursor="Hand" DockPanel.Dock="Left"/>
-                                    <TextBlock Text="{Binding DockerTestStatus}" Foreground="#0284C7" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"/>
-                                </DockPanel>
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
-                </Border>
-
-                <!-- Section 2: GitHub Account & Authenticatie -->
-                <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,16">
-                    <StackPanel>
-                        <DockPanel Margin="0,0,0,6">
-                            <TextBlock Text="{helpers:Loc Settings_GitHubSection}" FontSize="15" FontWeight="SemiBold" Foreground="#4F46E5" DockPanel.Dock="Left"/>
-                            <TextBlock Text="{helpers:Loc Settings_RegistriesDpapi}" FontSize="11" Foreground="#16A34A" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                        </DockPanel>
-                        <TextBlock Text="{helpers:Loc Settings_GitHubDesc}" 
-                                   FontSize="12" Foreground="#64748B" TextWrapping="Wrap" Margin="0,0,0,12"/>
-
-                        <!-- Ingelogd status card -->
-                        <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="12,10" Margin="0,0,0,12">
-                            <DockPanel LastChildFill="True">
-                                <!-- Knoppen Rechts -->
-                                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
-                                    <Button Content="{helpers:Loc Settings_GitHubLoginBtn}" Command="{Binding OpenGitHubLoginCommand}"
-                                            Padding="12,6" Background="#4F46E5" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" FontWeight="SemiBold"
-                                            Visibility="{Binding IsLoggedIn, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
-                                    <Button Content="{helpers:Loc Settings_GitHubLogoutBtn}" Command="{Binding LogoutGitHubCommand}"
-                                            Padding="10,5" Background="#FEE2E2" Foreground="#DC2626" BorderBrush="#FECACA" BorderThickness="1" Cursor="Hand"
-                                            Visibility="{Binding IsLoggedIn, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                                </StackPanel>
-
-                                <!-- Status Links -->
-                                <StackPanel VerticalAlignment="Center">
-                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                        <TextBlock Text="🐙 " FontSize="14"/>
-                                        <TextBlock Text="{helpers:Loc Settings_GitHubLoggedInAs}" FontWeight="SemiBold" Foreground="#334155" FontSize="12.5" Margin="0,0,6,0"
-                                                   Visibility="{Binding IsLoggedIn, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                                        <Border Background="#DCFCE7" CornerRadius="4" Padding="6,2" Margin="0,0,6,0"
-                                                Visibility="{Binding IsLoggedIn, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                            <TextBlock Text="{Binding LoggedInUsername, StringFormat='👤 {0}'}" Foreground="#15803D" FontSize="12" FontWeight="Bold"/>
-                                        </Border>
-                                        <TextBlock Text="{helpers:Loc Settings_GitHubNotLoggedIn}" Foreground="#64748B" FontSize="12.5"
-                                                   Visibility="{Binding IsLoggedIn, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
-                                    </StackPanel>
-                                </StackPanel>
-                            </DockPanel>
-                        </Border>
-
-                        <!-- GitHub Repository (Optioneel voor community templates / updates) -->
-                        <Grid Margin="0,0,0,10">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="12"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="{helpers:Loc Settings_GitHubRepoOwnerLabel}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
-                                <TextBox Text="{Binding GitHubRepoOwner, UpdateSourceTrigger=PropertyChanged}" 
-                                         Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="2">
-                                <TextBlock Text="{helpers:Loc Settings_GitHubRepoNameLabel}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
-                                <TextBox Text="{Binding GitHubRepoName, UpdateSourceTrigger=PropertyChanged}" 
-                                         Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6"/>
-                            </StackPanel>
-                        </Grid>
-
-                        <!-- Test GitHub Button -->
-                        <DockPanel Margin="0,2,0,0">
-                            <Button Content="{helpers:Loc Settings_TestGitHub}" Command="{Binding TestGitHubConnectionCommand}"
-                                    Padding="14,6" Background="#4F46E5" Foreground="White" BorderThickness="0" Cursor="Hand" DockPanel.Dock="Left"/>
-                            <TextBlock Text="{Binding GitHubTestStatus}" Foreground="#0284C7" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"/>
-                        </DockPanel>
-                    </StackPanel>
-                </Border>
-
-                <!-- Section 3: Voorkeuren -->
-                <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="16">
-                    <StackPanel>
-                        <TextBlock Text="{helpers:Loc Settings_AppPreferences}" FontSize="15" FontWeight="SemiBold" Foreground="#059669" Margin="0,0,0,12"/>
-
-                        <!-- Taal / Language Keuze -->
-                        <Grid Margin="0,0,0,12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="16"/>
-                                <ColumnDefinition Width="220"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                <TextBlock Text="{helpers:Loc Settings_Language}" FontSize="12.5" FontWeight="SemiBold" Foreground="#334155"/>
-                                <TextBlock Text="Nederlands (NL) / English (EN)" FontSize="11" Foreground="#64748B"/>
-                            </StackPanel>
-                            <ComboBox Grid.Column="2" ItemsSource="{Binding AvailableLanguages}" SelectedItem="{Binding SelectedLanguageDisplay, Mode=TwoWay}"
-                                      Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                        </Grid>
-
-                        <Border Height="1" Background="#E2E8F0" Margin="0,0,0,12"/>
-
-                        <CheckBox Content="{helpers:Loc Settings_AutoCheckProfiles}" IsChecked="{Binding AutoCheckUpdatesOnStart}" 
-                                  Foreground="#0F172A" Margin="0,0,0,10"/>
-
-                        <Grid Margin="0,0,0,10">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="12"/>
-                                <ColumnDefinition Width="160"/>
-                            </Grid.ColumnDefinitions>
-                            <CheckBox Grid.Column="0" Content="{helpers:Loc Settings_AutoCheckImages}" 
-                                      IsChecked="{Binding AutoCheckImageUpdates}" Foreground="#0F172A" VerticalAlignment="Center"/>
-                            <ComboBox Grid.Column="2" ItemsSource="{Binding AvailableFrequencies}" SelectedItem="{Binding UpdateCheckFrequency}"
-                                      IsEnabled="{Binding AutoCheckImageUpdates}"
-                                      Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4"/>
-                        </Grid>
-
-                        <CheckBox Content="{helpers:Loc Settings_KeepRunningOnSwitch}" IsChecked="{Binding DefaultKeepRunningOnSwitch}" 
-                                  Foreground="#0F172A" Margin="0,0,0,10"/>
-
-                        <CheckBox Content="{helpers:Loc Settings_ConfirmOnSwitch}" IsChecked="{Binding PromptToStopPreviousProfile}" 
-                                  Foreground="#0F172A"/>
-                    </StackPanel>
-                </Border>
-
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="⚙️" FontSize="20" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="{helpers:Loc Menu_Settings}" FontSize="20" FontWeight="Bold" Foreground="#0F172A" VerticalAlignment="Center"/>
+                </StackPanel>
+                <TextBlock Text="Beheer hier alle algemene voorkeuren, Docker servers en server-specifieke profielen." 
+                           FontSize="12.5" Foreground="#64748B" Margin="0,3,0,0"/>
             </StackPanel>
-        </ScrollViewer>
+        </Grid>
+
+        <!-- Main Tab Control with Add Server button -->
+        <Grid Grid.Row="1">
+            <TabControl ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
+                        Background="#F8FAFC" BorderBrush="#CBD5E1">
+                <TabControl.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="4,2">
+                            <TextBlock Text="{Binding Header}" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </TabControl.ItemTemplate>
+            </TabControl>
+
+            <!-- Add Server Button at Top Right of Tabs -->
+            <Button Content="➕ Nieuwe Server" Command="{Binding AddServerCommand}"
+                    HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,3,4,0"
+                    Padding="10,5" Background="#F0FDF4" Foreground="#16A34A" BorderBrush="#BBF7D0" BorderThickness="1"
+                    Cursor="Hand" FontWeight="Bold" FontSize="12"/>
+        </Grid>
 
         <!-- Footer Buttons -->
-        <DockPanel Grid.Row="2" Margin="0,16,0,0">
+        <DockPanel Grid.Row="2" Margin="0,14,0,0">
             <Button Content="{helpers:Loc General_Cancel}" Command="{Binding CancelCommand}" Padding="16,8"
                     Background="#F1F5F9" Foreground="#334155" BorderBrush="#CBD5E1" BorderThickness="1" Cursor="Hand" DockPanel.Dock="Left"/>
-            <Button Content="{helpers:Loc Settings_SaveAndClose}" Click="SaveButton_Click" Padding="20,8"
-                    Background="#16A34A" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand" HorizontalAlignment="Right"/>
+            <Button Content="{helpers:Loc Settings_SaveAndClose}" Click="SaveButton_Click" Padding="22,8"
+                    Background="#16A34A" Foreground="White" FontWeight="Bold" BorderThickness="0" Cursor="Hand" HorizontalAlignment="Right"/>
         </DockPanel>
     </Grid>
 </Window>
