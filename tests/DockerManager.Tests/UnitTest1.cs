@@ -832,5 +832,32 @@ services:
             });
         }
     }
+
+    [Fact]
+    public void TestDockerService_ResolveVolumeHostPath_LocalAndRemote()
+    {
+        var cred = new CredentialService();
+        var sett = new SettingsService(cred);
+        var dockerService = new DockerService(sett, cred);
+
+        // 1. Named volume always stays unchanged
+        var namedVol = new VolumeMapping { HostPath = "kennisbase_data", IsNamedVolume = true };
+        Assert.Equal("kennisbase_data", dockerService.ResolveVolumeHostPath(namedVol, "Oracle", "kennisbase"));
+
+        // 2. Remote TCP mode (Linux paths)
+        sett.Settings.DockerHostType = "Tcp";
+        sett.Settings.DockerTcpUrl = "tcp://100.80.90.100:2375";
+
+        var relVol = new VolumeMapping { HostPath = "./volumes/nginx/data", IsNamedVolume = false };
+        var resolvedRemote = dockerService.ResolveVolumeHostPath(relVol, "Oracle", "nginx");
+        Assert.Equal("/var/lib/dockermanager/volumes/oracle/nginx/data", resolvedRemote);
+
+        var absLinuxVol = new VolumeMapping { HostPath = "/custom/data/path", IsNamedVolume = false };
+        Assert.Equal("/custom/data/path", dockerService.ResolveVolumeHostPath(absLinuxVol, "Oracle", "app"));
+
+        // Reset to local pipe
+        sett.Settings.DockerHostType = "Pipe";
+    }
 }
+
 
