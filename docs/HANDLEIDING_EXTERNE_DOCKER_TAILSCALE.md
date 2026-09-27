@@ -26,7 +26,7 @@ Deze handleiding legt uit hoe je vanuit **DockerManager** (op je Windows machine
 
 Standaard luistert Docker op Linux alleen op de lokale socket (`/var/run/docker.sock`). Om Docker over Tailscale bereikbaar te maken, maken we een **systemd override** aan.
 
-> ⚠️ **Waarom geen `/etc/docker/daemon.json`?**
+> ⚠️ **Waarom geen `/etc/docker/daemon.json`?**  
 > Het toevoegen van `"hosts": ["tcp://..."]` in `daemon.json` veroorzaakt op moderne Linux-distributies (systemd) vaak een foutmelding omdat de startup-flags van systemd ermee conflicteren. Een systemd drop-in override is de officiële en stabiele manier.
 
 ### 1.1 Tailscale IP-adres van de server opvragen
@@ -78,12 +78,30 @@ sudo ss -tulpn | grep 2375
 
 ---
 
-## 🌐 Stap 3: Hoe zit het met Cloudflare Tunnel op de Externe Host?
+## 🌐 Stap 3: Cloudflare Tunnel & Subdomeinen op de Externe Host
 
-Als je apps op de externe server publiek bereikbaar wilt maken via Cloudflare:
+Als je apps op de externe server via een **Cloudflare Tunnel** wereldwijd bereikbaar wilt maken onder je eigen domein (`*.jouwdomein.nl`), werkt dat naadloos samen met DockerManager:
 
-* **De beste aanpak:** Laat de `cloudflared` container gewoon meedraaien op de **externe server** (als onderdeel van je DockerManager profiel).
-* **Waarom?**
-  1. `cloudflared` draait in hetzelfde Docker-netwerk op de externe server als NGINX.
-  2. `cloudflared` maakt rechtstreeks vanaf de server de uitgaande verbinding naar Cloudflare.
-  3. Je eigen Windows-pc hoeft dan **niet** aan te blijven staan voor website-bezoekers! DockerManager fungeert puur als dashboard om containers te starten, stoppen en updaten.
+### Hoe werkt dit onder water?
+
+```text
+[ DockerManager op Windows ]
+   │
+   ├── 1. [HTTPS API Call] ──────────▶ [ Cloudflare Cloud ]
+   │      - Maakt DNS CNAME aan           - Koppelt sub.jouwdomein.nl
+   │      - Voegt Ingress regel toe       - Stuurt verkeer naar Tunnel ID
+   │
+   └── 2. [Tailscale TCP 2375] ──────▶ [ Externe Linux Server ]
+          - Start containers               - Container 'cloudflared' start op server
+                                           - Container 'nginx' / apps starten op server
+                                           - 'cloudflared' verbindt met Cloudflare
+```
+
+1. **Beheer vanuit DockerManager:**  
+   Wanneer je in DockerManager een nieuw subdomein registreert, praat DockerManager rechtstreeks via HTTPS met de Cloudflare API om het DNS CNAME-record en de tunnel-ingressregel te configureren.
+2. **Tunnel start op de server:**  
+   Omdat DockerManager met de externe server verbonden is, start de container `cloudflared` (met jouw Tunnel Token) fysiek **op de externe Linux server**.
+3. **Rechtstreekse tunnelverbinding:**  
+   De `cloudflared` container op de server legt de uitgaande verbinding naar Cloudflare. Inkomende bezoekers komen direct op de externe server uit bij poort 8080 (NGINX) of je container.
+4. **Onafhankelijk:**  
+   Jouw lokale Windows-machine hoeft **niet aan te blijven staan** voor de bezoekers; de externe server draait 24/7 zelfstandig door!
