@@ -38,10 +38,10 @@ public interface IDockerService
     Task<bool> TryLaunchDockerDesktopAsync();
     Task<ContainerRuntimeInfo> GetContainerInfoAsync(string containerName, CancellationToken ct = default);
     Task<List<ContainerRuntimeInfo>> GetAllContainersAsync(CancellationToken ct = default);
-    Task StartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, CancellationToken ct = default);
+    Task StartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, CancellationToken ct = default);
     Task StopContainerAsync(string containerName, CancellationToken ct = default);
-    Task RestartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, CancellationToken ct = default);
-    Task<ContainerUpdateResult> SafeUpdateContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, CancellationToken ct = default);
+    Task RestartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, CancellationToken ct = default);
+    Task<ContainerUpdateResult> SafeUpdateContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, CancellationToken ct = default);
     Task RemoveContainerAsync(string containerName, bool removeVolumes = false, CancellationToken ct = default);
     Task StreamLogsAsync(string containerName, Action<string> onLineReceived, CancellationToken ct = default);
     Task<string?> GetContainerStatsSummaryAsync(string containerName, CancellationToken ct = default);
@@ -157,7 +157,7 @@ public class DockerService : IDockerService
         }
     }
 
-    public async Task StartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, CancellationToken ct = default)
+    public async Task StartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, CancellationToken ct = default)
     {
         var client = GetClient();
         var containerName = string.IsNullOrWhiteSpace(service.ContainerName) ? service.Id : service.ContainerName;
@@ -176,7 +176,7 @@ public class DockerService : IDockerService
         {
             // Container doesn't exist yet: Pull image & Create
             progress?.Report($"Image '{service.Image}' ophalen van registry...");
-            await PullImageAsync(client, service, progress, ct);
+            await PullImageAsync(client, service, progress, registryConfig, ct);
             progress?.Report($"Container '{containerName}' aanmaken...");
             var containerId = await CreateContainerInternalAsync(client, service, profileName, ct);
             progress?.Report($"Container '{containerName}' starten...");
@@ -211,7 +211,7 @@ public class DockerService : IDockerService
         }
     }
 
-    public async Task RestartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, CancellationToken ct = default)
+    public async Task RestartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, CancellationToken ct = default)
     {
         var client = GetClient();
         var containerName = string.IsNullOrWhiteSpace(service.ContainerName) ? service.Id : service.ContainerName;
@@ -234,7 +234,7 @@ public class DockerService : IDockerService
         progress?.Report($"Container '{containerName}' succesvol herstart met actuele instellingen.");
     }
 
-    public async Task<ContainerUpdateResult> SafeUpdateContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, CancellationToken ct = default)
+    public async Task<ContainerUpdateResult> SafeUpdateContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, CancellationToken ct = default)
     {
         var client = GetClient();
         var containerName = string.IsNullOrWhiteSpace(service.ContainerName) ? service.Id : service.ContainerName;
@@ -251,7 +251,7 @@ public class DockerService : IDockerService
 
         // Step 1: Pull the latest image layer in the background while container keeps running!
         progress?.Report($"Nieuwste image '{service.Image}' controleren op registry...");
-        var hadNewerLayers = await PullImageAsync(client, service, progress, ct);
+        var hadNewerLayers = await PullImageAsync(client, service, progress, registryConfig, ct);
 
         string? newImageId = null;
         try
@@ -362,7 +362,7 @@ public class DockerService : IDockerService
         }
     }
 
-    private async Task<bool> PullImageAsync(DockerClient client, ServiceDefinition service, IProgress<string>? progress, CancellationToken ct)
+    private async Task<bool> PullImageAsync(DockerClient client, ServiceDefinition service, IProgress<string>? progress, ProfileRegistryConfig? registryConfig = null, CancellationToken ct = default)
     {
         var image = service.Image;
         var (imageName, tag) = ParseImageNameAndTag(image);
@@ -386,6 +386,25 @@ public class DockerService : IDockerService
         });
 
         var cred = _credentialService.GetCredentialForImage(imageName);
+
+        // Fallback to profile-level registry configuration if not found in credential store
+        if ((cred == null || string.IsNullOrWhiteSpace(cred.Password)) && registryConfig != null && !string.IsNullOrWhiteSpace(registryConfig.Password))
+        {
+            var server = string.IsNullOrWhiteSpace(registryConfig.Server) ? "ghcr.io" : registryConfig.Server.Trim();
+            if (imageName.StartsWith(server, StringComparison.OrdinalIgnoreCase) ||
+                (server.Contains("ghcr.io", StringComparison.OrdinalIgnoreCase) && imageName.Contains("ghcr.io", StringComparison.OrdinalIgnoreCase)))
+            {
+                cred = new RegistryCredential
+                {
+                    ServerAddress = server,
+                    Username = !string.IsNullOrWhiteSpace(registryConfig.Username) 
+                        ? registryConfig.Username 
+                        : (!string.IsNullOrWhiteSpace(registryConfig.Namespace) ? registryConfig.Namespace : _settingsService.Settings.GitHubRepoOwner),
+                    Password = registryConfig.Password,
+                    DisplayName = server
+                };
+            }
+        }
 
         // If credentials exist or service explicitly requires auth
         if (cred != null && !string.IsNullOrWhiteSpace(cred.Password))
@@ -775,7 +794,7 @@ public class DockerService : IDockerService
         {
             progress?.Report($"Image '{image}' ophalen / downloaden...");
             var service = new ServiceDefinition { Image = image.Trim(), RequiresAuth = requiresAuth };
-            await PullImageAsync(client, service, progress, ct);
+            await PullImageAsync(client, service, progress, null, ct);
 
             progress?.Report($"Image inspecteren...");
             var inspect = await client.Images.InspectImageAsync(image.Trim(), ct);
