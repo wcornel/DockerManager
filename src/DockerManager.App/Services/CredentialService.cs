@@ -43,10 +43,11 @@ public class CredentialService : ICredentialService
     private readonly string _registriesFilePath;
     private static readonly byte[] Entropy = "DockerManager_Entropy_Salt_9988"u8.ToArray();
 
-    public CredentialService()
+    public CredentialService(string? customBasePath = null)
     {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var dir = Path.Combine(appData, "DockerManager");
+        var dir = !string.IsNullOrWhiteSpace(customBasePath)
+            ? customBasePath
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DockerManager");
         Directory.CreateDirectory(dir);
         _tokenFilePath = Path.Combine(dir, "gh.dat");
         _cloudflareTokenFilePath = Path.Combine(dir, "cf.dat");

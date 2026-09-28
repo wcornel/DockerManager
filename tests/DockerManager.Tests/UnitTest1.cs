@@ -1217,8 +1217,9 @@ services:
     [Fact]
     public void TestProfileRegistryCredentials_SynchronizedToCredentialService()
     {
-        var cred = new CredentialService();
-        var tempSettingsPath = Path.Combine(Path.GetTempPath(), "DockerManager_Test_" + Guid.NewGuid().ToString("N"), "settings.json");
+        var tempDir = Path.Combine(Path.GetTempPath(), "DockerManager_TestCred_" + Guid.NewGuid().ToString("N"));
+        var cred = new CredentialService(tempDir);
+        var tempSettingsPath = Path.Combine(tempDir, "settings.json");
         var sett = new SettingsService(cred, tempSettingsPath);
         var prof = new GitHubProfileService(sett, cred);
         var dock = new DockerService(sett, cred);
