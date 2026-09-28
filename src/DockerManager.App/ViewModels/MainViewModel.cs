@@ -351,6 +351,17 @@ public partial class MainViewModel : ObservableObject
         ServiceCards.Clear();
         if (SelectedProfile == null) return;
 
+        if (SelectedProfile.Registry is { } reg && !string.IsNullOrWhiteSpace(reg.Password) && !string.IsNullOrWhiteSpace(reg.Server))
+        {
+            _credentialService.SaveRegistryCredential(new RegistryCredential
+            {
+                ServerAddress = reg.Server,
+                Username = !string.IsNullOrWhiteSpace(reg.Username) ? reg.Username : (!string.IsNullOrWhiteSpace(reg.Namespace) ? reg.Namespace : "User"),
+                Password = reg.Password,
+                DisplayName = $"{reg.Server} ({SelectedProfile.Name})"
+            });
+        }
+
         foreach (var svc in SelectedProfile.Services)
         {
             var card = new ServiceCardViewModel(svc, SelectedProfile.Name, _dockerService, _settingsService, SelectedProfile);

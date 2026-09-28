@@ -352,7 +352,7 @@ public partial class ServiceCardViewModel : ObservableObject
         try
         {
             var progress = new Progress<string>(msg => LogActivity(msg));
-            await _dockerService.StartContainerAsync(Service, _profileName, progress);
+            await _dockerService.StartContainerAsync(Service, _profileName, progress, _profile?.Registry);
             await RefreshStatusAsync();
             LogActivity("Container succesvol gestart.");
         }
@@ -397,7 +397,7 @@ public partial class ServiceCardViewModel : ObservableObject
         try
         {
             var progress = new Progress<string>(msg => LogActivity(msg));
-            await _dockerService.RestartContainerAsync(Service, _profileName, progress);
+            await _dockerService.RestartContainerAsync(Service, _profileName, progress, _profile?.Registry);
             await RefreshStatusAsync();
             LogActivity("Container herstart.");
         }
@@ -420,7 +420,7 @@ public partial class ServiceCardViewModel : ObservableObject
         try
         {
             var progress = new Progress<string>(msg => LogActivity(msg));
-            var updateResult = await _dockerService.SafeUpdateContainerAsync(Service, _profileName, progress);
+            var updateResult = await _dockerService.SafeUpdateContainerAsync(Service, _profileName, progress, _profile?.Registry);
             Service.LastUpdatedUtc = DateTime.UtcNow;
             HasUpdateAvailable = false;
             OnPropertyChanged(nameof(LastUpdatedText));

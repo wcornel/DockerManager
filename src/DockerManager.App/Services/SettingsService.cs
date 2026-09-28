@@ -17,13 +17,22 @@ public class SettingsService : ISettingsService
     private readonly ICredentialService _credentialService;
     public AppSettings Settings { get; private set; } = new();
 
-    public SettingsService(ICredentialService credentialService)
+    public SettingsService(ICredentialService credentialService, string? customSettingsPath = null)
     {
         _credentialService = credentialService;
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var dir = Path.Combine(appData, "DockerManager");
-        Directory.CreateDirectory(dir);
-        _settingsFilePath = Path.Combine(dir, "settings.json");
+        if (!string.IsNullOrWhiteSpace(customSettingsPath))
+        {
+            _settingsFilePath = customSettingsPath;
+            var dir = Path.GetDirectoryName(customSettingsPath);
+            if (!string.IsNullOrWhiteSpace(dir)) Directory.CreateDirectory(dir);
+        }
+        else
+        {
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var dir = Path.Combine(appData, "DockerManager");
+            Directory.CreateDirectory(dir);
+            _settingsFilePath = Path.Combine(dir, "settings.json");
+        }
         Load();
     }
 

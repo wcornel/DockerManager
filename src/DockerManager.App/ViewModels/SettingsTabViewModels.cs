@@ -490,6 +490,19 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
         Profile.Registry.Namespace = RegistryNamespace.Trim();
         Profile.Registry.Username = RegistryUsername.Trim();
         Profile.Registry.Password = RegistryPassword.Trim();
+
+        if (!string.IsNullOrWhiteSpace(Profile.Registry.Password) && !string.IsNullOrWhiteSpace(Profile.Registry.Server))
+        {
+            _credentialService.SaveRegistryCredential(new RegistryCredential
+            {
+                ServerAddress = Profile.Registry.Server,
+                Username = !string.IsNullOrWhiteSpace(Profile.Registry.Username) 
+                    ? Profile.Registry.Username 
+                    : (!string.IsNullOrWhiteSpace(Profile.Registry.Namespace) ? Profile.Registry.Namespace : _settingsService.Settings.GitHubRepoOwner),
+                Password = Profile.Registry.Password,
+                DisplayName = $"{Profile.Registry.Server} ({Profile.Name})"
+            });
+        }
     }
 }
 

@@ -960,11 +960,14 @@ services:
     public void TestProfile_CloudflareAndRegistryConfig_SerializationAndInheritance()
     {
         var cred = new CredentialService();
-        var sett = new SettingsService(cred);
+        var tempSettingsPath = Path.Combine(Path.GetTempPath(), "DockerManager_TestSett_" + Guid.NewGuid().ToString("N"), "settings.json");
+        var sett = new SettingsService(cred, tempSettingsPath);
         var cf = new CloudflareService(sett, cred);
         var dock = new DockerService(sett, cred);
 
-        // 1. Setup global settings
+        try
+        {
+            // 1. Setup global settings
         sett.Settings.CloudflareAccountId = "global_acc_123";
         sett.Settings.CloudflareTunnelId = "global_tunnel_456";
         sett.Settings.CloudflareDomain = "globaldomain.com";
@@ -1018,11 +1021,21 @@ services:
         Assert.Equal("docker.io", vm.RegistryServer);
         Assert.Equal("customorg", vm.RegistryNamespace);
 
-        // 6. Test Save
-        vm.SaveCommand.Execute(null);
-        Assert.True(vm.IsSaved);
-        Assert.Equal("customdomain.nl", targetProfile.Cloudflare.Domain);
-        Assert.Equal("customorg", targetProfile.Registry.Namespace);
+            // 6. Test Save
+            vm.SaveCommand.Execute(null);
+            Assert.True(vm.IsSaved);
+            Assert.Equal("customdomain.nl", targetProfile.Cloudflare.Domain);
+            Assert.Equal("customorg", targetProfile.Registry.Namespace);
+        }
+        finally
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(tempSettingsPath);
+                if (Directory.Exists(dir)) Directory.Delete(dir, true);
+            }
+            catch { }
+        }
     }
 
     [Fact]
@@ -1199,6 +1212,54 @@ services:
         };
         var resolvedNamed = dock.ResolveVolumeHostPath(namedVol, profile.Name, "app", profile.VolumesSubfolder, vpsServer);
         Assert.Equal("my_custom_named_volume", resolvedNamed);
+    }
+
+    [Fact]
+    public void TestProfileRegistryCredentials_SynchronizedToCredentialService()
+    {
+        var cred = new CredentialService();
+        var tempSettingsPath = Path.Combine(Path.GetTempPath(), "DockerManager_Test_" + Guid.NewGuid().ToString("N"), "settings.json");
+        var sett = new SettingsService(cred, tempSettingsPath);
+        var prof = new GitHubProfileService(sett, cred);
+        var dock = new DockerService(sett, cred);
+        var cf = new CloudflareService(sett, cred);
+
+        try
+        {
+            var profile = new ProfileModel
+            {
+                Name = "WebApps",
+                Registry = new ProfileRegistryConfig
+                {
+                    Server = "ghcr.io",
+                    Namespace = "my-org",
+                    Username = "dev-user",
+                    Password = "ghp_secret_token_12345"
+                }
+            };
+
+            var itemVm = new ProfileSettingsItemViewModel(profile, sett, cred, cf, dock, new[] { profile });
+            Assert.Equal("ghcr.io", itemVm.RegistryServer);
+            Assert.Equal("dev-user", itemVm.RegistryUsername);
+
+            // Apply to profile should save to CredentialService
+            itemVm.ApplyToProfile();
+
+            var savedCred = cred.GetCredentialForImage("ghcr.io/my-org/my-app:latest");
+            Assert.NotNull(savedCred);
+            Assert.Equal("ghcr.io", savedCred.ServerAddress);
+            Assert.Equal("ghp_secret_token_12345", savedCred.Password);
+            Assert.Equal("dev-user", savedCred.Username);
+        }
+        finally
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(tempSettingsPath);
+                if (Directory.Exists(dir)) Directory.Delete(dir, true);
+            }
+            catch { }
+        }
     }
 }
 
