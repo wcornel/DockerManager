@@ -243,13 +243,15 @@ public partial class MainWindow : Window
         var msg = isEn
             ? $"DockerManager — Profile & Container Hub\n" +
               $"Version: {versionStr}\n" +
-              $"Author: W. Cornelissen\n\n" +
+              $"Author: W. Cornelissen\n" +
+              $"Copyright © 2026 W. Cornelissen\n\n" +
               $"License: MIT License (Open Source)\n" +
               $"GitHub: https://github.com/wcornel/DockerManager\n\n" +
               $"Easily manage all your containers, ports, volumes, and profiles."
             : $"DockerManager — Profile & Container Hub\n" +
               $"Versie: {versionStr}\n" +
-              $"Auteur: W. Cornelissen\n\n" +
+              $"Auteur: W. Cornelissen\n" +
+              $"Copyright © 2026 W. Cornelissen\n\n" +
               $"Licentie: MIT License (Open Source)\n" +
               $"GitHub: https://github.com/wcornel/DockerManager\n\n" +
               $"Beheer eenvoudig al je containers, poorten, volumes en profielen.";
