@@ -96,13 +96,48 @@ public class ProfileModel : ObservableObject
 
     public List<ServiceDefinition> Services { get; set; } = new();
 
-    public string GetEffectiveCloudflareDomain(AppSettings? globalSettings)
+    public string GetEffectiveCloudflareDomain(DockerServerEnvironment? server) => GetEffectiveCloudflareDomain(null, server);
+
+    public string GetEffectiveCloudflareDomain(AppSettings? globalSettings, DockerServerEnvironment? server = null)
     {
         if (!string.IsNullOrWhiteSpace(Cloudflare?.Domain))
         {
             return Cloudflare.Domain.Trim().TrimStart('.').ToLowerInvariant();
         }
+        if (!string.IsNullOrWhiteSpace(server?.CloudflareDomain))
+        {
+            return server.CloudflareDomain.Trim().TrimStart('.').ToLowerInvariant();
+        }
         return globalSettings?.CloudflareDomain?.Trim().TrimStart('.').ToLowerInvariant() ?? string.Empty;
+    }
+
+    public ProfileCloudflareConfig GetEffectiveCloudflareConfig(DockerServerEnvironment? server) => GetEffectiveCloudflareConfig(null, server);
+
+    public ProfileCloudflareConfig GetEffectiveCloudflareConfig(AppSettings? globalSettings, DockerServerEnvironment? server = null)
+    {
+        var cfg = new ProfileCloudflareConfig();
+
+        cfg.Domain = !string.IsNullOrWhiteSpace(Cloudflare?.Domain)
+            ? Cloudflare.Domain
+            : (!string.IsNullOrWhiteSpace(server?.CloudflareDomain) ? server.CloudflareDomain : (globalSettings?.CloudflareDomain ?? string.Empty));
+
+        cfg.AccountId = !string.IsNullOrWhiteSpace(Cloudflare?.AccountId)
+            ? Cloudflare.AccountId
+            : (!string.IsNullOrWhiteSpace(server?.CloudflareAccountId) ? server.CloudflareAccountId : (globalSettings?.CloudflareAccountId ?? string.Empty));
+
+        cfg.TunnelId = !string.IsNullOrWhiteSpace(Cloudflare?.TunnelId)
+            ? Cloudflare.TunnelId
+            : (!string.IsNullOrWhiteSpace(server?.CloudflareTunnelId) ? server.CloudflareTunnelId : (globalSettings?.CloudflareTunnelId ?? string.Empty));
+
+        cfg.TunnelToken = !string.IsNullOrWhiteSpace(Cloudflare?.TunnelToken)
+            ? Cloudflare.TunnelToken
+            : (!string.IsNullOrWhiteSpace(server?.CloudflareTunnelToken) ? server.CloudflareTunnelToken : (globalSettings?.CloudflareTunnelToken ?? string.Empty));
+
+        cfg.ApiToken = !string.IsNullOrWhiteSpace(Cloudflare?.ApiToken)
+            ? Cloudflare.ApiToken
+            : (!string.IsNullOrWhiteSpace(server?.CloudflareApiToken) ? server.CloudflareApiToken : string.Empty);
+
+        return cfg;
     }
 
     public override string ToString() => Name;

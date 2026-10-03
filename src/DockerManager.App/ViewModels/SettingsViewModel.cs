@@ -263,6 +263,15 @@ public partial class SettingsViewModel : ObservableObject
             _settingsService.Settings.ActiveServerId = serverList.FirstOrDefault()?.Id ?? "local";
         }
 
+        var activeServer = serverList.FirstOrDefault(s => s.Id.Equals(_settingsService.Settings.ActiveServerId, StringComparison.OrdinalIgnoreCase)) ?? serverList.FirstOrDefault();
+        if (activeServer != null)
+        {
+            _settingsService.Settings.CloudflareDomain = activeServer.CloudflareDomain;
+            _settingsService.Settings.CloudflareAccountId = activeServer.CloudflareAccountId;
+            _settingsService.Settings.CloudflareTunnelId = activeServer.CloudflareTunnelId;
+            _settingsService.Settings.CloudflareTunnelToken = activeServer.CloudflareTunnelToken;
+        }
+
         _ = _gitHubProfileService.EnsureSubfoldersAndMigrateAsync(serverList);
         _settingsService.Save();
 

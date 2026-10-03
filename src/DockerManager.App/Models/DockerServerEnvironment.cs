@@ -11,6 +11,14 @@ public class DockerServerEnvironment
     public string LastActiveProfile { get; set; } = string.Empty;
     public string VolumesRootPath { get; set; } = string.Empty;
 
+    // Cloudflare Tunnel (1 tunnel per server)
+    public string CloudflareDomain { get; set; } = string.Empty;
+    public string CloudflareAccountId { get; set; } = string.Empty;
+    public string CloudflareTunnelId { get; set; } = string.Empty;
+    public string CloudflareTunnelName { get; set; } = string.Empty;
+    public string CloudflareTunnelToken { get; set; } = string.Empty;
+    public string CloudflareApiToken { get; set; } = string.Empty;
+
     public string GetEffectiveVolumesRootPath()
     {
         if (!string.IsNullOrWhiteSpace(VolumesRootPath))
@@ -49,7 +57,13 @@ public class DockerServerEnvironment
             TcpUrl = TcpUrl,
             ProfilesSubfolder = ProfilesSubfolder,
             LastActiveProfile = LastActiveProfile,
-            VolumesRootPath = VolumesRootPath
+            VolumesRootPath = VolumesRootPath,
+            CloudflareDomain = CloudflareDomain,
+            CloudflareAccountId = CloudflareAccountId,
+            CloudflareTunnelId = CloudflareTunnelId,
+            CloudflareTunnelName = CloudflareTunnelName,
+            CloudflareTunnelToken = CloudflareTunnelToken,
+            CloudflareApiToken = CloudflareApiToken
         };
     }
 }
