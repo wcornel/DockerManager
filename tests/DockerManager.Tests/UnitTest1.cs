@@ -1388,6 +1388,64 @@ services:
             catch { }
         }
     }
+
+    [Fact]
+    public void TestServerTunnel_ApplyToProfilesAndPrompt()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "DockerManager_TestPrompt_" + Guid.NewGuid().ToString("N"));
+        var cred = new CredentialService(tempDir);
+        var tempSettingsPath = Path.Combine(tempDir, "settings.json");
+        var sett = new SettingsService(cred, tempSettingsPath);
+        var dock = new DockerService(sett, cred);
+        var cf = new CloudflareService(sett, cred);
+
+        try
+        {
+            var server = new DockerServerEnvironment
+            {
+                Name = "Linux VPS",
+                CloudflareDomain = "mijnbedrijf.nl",
+                CloudflareAccountId = "acc_12345",
+                CloudflareTunnelId = "tun_old",
+                CloudflareTunnelToken = "token_old"
+            };
+
+            var profile1 = new ProfileModel { Name = "Web", Cloudflare = new ProfileCloudflareConfig { TunnelId = "tun_old", TunnelToken = "token_old" } };
+            var profile2 = new ProfileModel { Name = "Api", Cloudflare = new ProfileCloudflareConfig { TunnelId = "tun_old", TunnelToken = "token_old" } };
+
+            var serverVm = new ServerSettingsTabViewModel(server, new[] { profile1, profile2 }, sett, cred, cf, dock, () => new[] { profile1, profile2 });
+
+            Assert.Equal(2, serverVm.Profiles.Count);
+            Assert.Equal("tun_old", serverVm.Profiles[0].CloudflareTunnelId);
+            Assert.Equal("tun_old", serverVm.Profiles[1].CloudflareTunnelId);
+
+            // 1. Test ApplyTunnelToProfilesCommand
+            serverVm.CloudflareTunnelId = "tun_new_guid_123";
+            serverVm.CloudflareTunnelToken = "token_new_456";
+            serverVm.ApplyTunnelToProfilesCommand.Execute(null);
+
+            Assert.Equal("tun_new_guid_123", serverVm.Profiles[0].CloudflareTunnelId);
+            Assert.Equal("token_new_456", serverVm.Profiles[0].CloudflareTunnelToken);
+            Assert.Equal("tun_new_guid_123", serverVm.Profiles[1].CloudflareTunnelId);
+            Assert.Equal("token_new_456", serverVm.Profiles[1].CloudflareTunnelToken);
+            Assert.Contains("doorgevoerd naar alle 2 profielen", serverVm.CloudflareStatusText);
+
+            // 2. Test CopyTunnelFromServerCommand on profile level
+            serverVm.Profiles[0].CloudflareTunnelId = "manual_override";
+            Assert.Equal("manual_override", serverVm.Profiles[0].CloudflareTunnelId);
+            serverVm.Profiles[0].CopyTunnelFromServerCommand.Execute(null);
+            Assert.Equal("tun_new_guid_123", serverVm.Profiles[0].CloudflareTunnelId);
+            Assert.Contains("overgenomen in dit profiel", serverVm.Profiles[0].CopyStatusMessage);
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+            }
+            catch { }
+        }
+    }
 }
 
 

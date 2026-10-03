@@ -315,6 +315,14 @@
                                         <TextBox Grid.Column="1" Text="{Binding CloudflareTunnelToken, UpdateSourceTrigger=PropertyChanged}" 
                                                  IsReadOnly="True" Background="#F1F5F9" Foreground="#334155" BorderBrush="#CBD5E1" Padding="6,3" FontSize="11" FontFamily="Consolas"/>
                                     </Grid>
+
+                                    <!-- Knop om direct door te voeren naar alle profielen -->
+                                    <Button Content="{helpers:Loc Settings_ServerCloudflareApplyToProfiles}" 
+                                            Command="{Binding ApplyTunnelToProfilesCommand}"
+                                            Margin="100,8,0,0" Padding="10,6" Background="#EFF6FF" Foreground="#1D4ED8" 
+                                            BorderBrush="#BFDBFE" BorderThickness="1" Cursor="Hand" FontWeight="SemiBold" FontSize="11.5"
+                                            HorizontalAlignment="Left"
+                                            ToolTip="Kopieert de Tunnel ID (GUID) en Token direct naar alle profielen op deze server"/>
                                 </StackPanel>
                             </Border>
 
@@ -456,7 +464,12 @@
                                                 <ColumnDefinition Width="130"/>
                                                 <ColumnDefinition Width="*"/>
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="Tunnel ID:" FontSize="12" Foreground="#475569" VerticalAlignment="Center"/>
+                                            <DockPanel Grid.Column="0">
+                                                <TextBlock Text="Tunnel ID:" FontSize="12" Foreground="#475569" VerticalAlignment="Center"/>
+                                                <Button Content="{helpers:Loc Settings_ProfileCopyTunnelFromServer}" Command="{Binding CopyTunnelFromServerCommand}"
+                                                        Margin="4,0,0,0" Padding="3,1" FontSize="9.5" Background="Transparent" Foreground="#2563EB"
+                                                        BorderThickness="0" Cursor="Hand" ToolTip="Neemt de Tunnel ID en Token over van de server"/>
+                                            </DockPanel>
                                             <TextBox Grid.Column="1" Text="{Binding CloudflareTunnelId, UpdateSourceTrigger=PropertyChanged}" 
                                                      Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,4" FontSize="11.5" FontFamily="Consolas"/>
                                         </Grid>

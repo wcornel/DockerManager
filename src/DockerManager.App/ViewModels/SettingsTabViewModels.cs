@@ -192,6 +192,7 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
     private readonly ICloudflareService _cloudflareService;
     private readonly IDockerService _dockerService;
     private readonly DockerServerEnvironment? _parentServer;
+    private readonly ServerSettingsTabViewModel? _parentServerVm;
 
     public ProfileModel Profile { get; }
     public string OriginalName { get; }
@@ -265,7 +266,8 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
         ICloudflareService cloudflareService,
         IDockerService dockerService,
         IEnumerable<ProfileModel> allAvailableProfiles,
-        DockerServerEnvironment? parentServer = null)
+        DockerServerEnvironment? parentServer = null,
+        ServerSettingsTabViewModel? parentServerVm = null)
     {
         Profile = profile;
         _settingsService = settingsService;
@@ -273,6 +275,7 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
         _cloudflareService = cloudflareService;
         _dockerService = dockerService;
         _parentServer = parentServer;
+        _parentServerVm = parentServerVm;
 
         OriginalName = profile.Name;
         Name = profile.Name;
@@ -437,6 +440,28 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
             VolumesSubfolder = src.VolumesSubfolder;
         }
         CopyStatusMessage = $"✅ Alle instellingen overgenomen van '{SelectedCopySource?.DisplayName}'!";
+    }
+
+    [RelayCommand]
+    private void CopyTunnelFromServer()
+    {
+        var tunnelId = _parentServerVm?.CloudflareTunnelId ?? _parentServer?.CloudflareTunnelId;
+        var tunnelToken = _parentServerVm?.CloudflareTunnelToken ?? _parentServer?.CloudflareTunnelToken;
+        var accountId = _parentServerVm?.CloudflareAccountId ?? _parentServer?.CloudflareAccountId;
+        var domain = _parentServerVm?.CloudflareDomain ?? _parentServer?.CloudflareDomain;
+
+        if (string.IsNullOrWhiteSpace(tunnelId))
+        {
+            CopyStatusMessage = "⚠️ De server heeft nog geen gekoppelde tunnel.";
+            return;
+        }
+
+        CloudflareTunnelId = tunnelId;
+        if (!string.IsNullOrWhiteSpace(tunnelToken)) CloudflareTunnelToken = tunnelToken;
+        if (string.IsNullOrWhiteSpace(CloudflareAccountId) && !string.IsNullOrWhiteSpace(accountId)) CloudflareAccountId = accountId;
+        if (string.IsNullOrWhiteSpace(CloudflareDomain) && !string.IsNullOrWhiteSpace(domain)) CloudflareDomain = domain;
+
+        CopyStatusMessage = $"✅ Server tunnel '{tunnelId}' overgenomen in dit profiel.";
     }
 
     [RelayCommand]
@@ -680,6 +705,8 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
 
     public ObservableCollection<ProfileSettingsItemViewModel> Profiles { get; } = new();
 
+    public Func<string, string, bool>? ConfirmPrompt { get; set; }
+
     [ObservableProperty]
     private ProfileSettingsItemViewModel? _selectedProfile;
 
@@ -770,7 +797,7 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
 
         foreach (var p in serverProfiles)
         {
-            var pVm = new ProfileSettingsItemViewModel(p, _settingsService, _credentialService, _cloudflareService, _dockerService, _getAllProfilesAcrossServers(), Server);
+            var pVm = new ProfileSettingsItemViewModel(p, _settingsService, _credentialService, _cloudflareService, _dockerService, _getAllProfilesAcrossServers(), Server, this);
             Profiles.Add(pVm);
         }
 
@@ -894,7 +921,34 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
                 CloudflareTunnelToken = runToken;
             }
 
-            CloudflareStatusText = $"✅ Nieuwe tunnel '{created.Name}' aangemaakt en gekoppeld!";
+            bool shouldUpdate = false;
+            string promptMsg = $"Nieuwe tunnel '{created.Name}' (ID: {created.Id}) is succesvol aangemaakt in Cloudflare!\n\n" +
+                               $"Wil je deze nieuwe tunnel direct instellen voor alle profielen op deze server ({Name})?";
+            string promptTitle = "Tunnel GUIDs bijwerken";
+
+            if (ConfirmPrompt != null)
+            {
+                shouldUpdate = ConfirmPrompt(promptMsg, promptTitle);
+            }
+            else if (System.Windows.Application.Current != null)
+            {
+                var askResult = System.Windows.MessageBox.Show(
+                    promptMsg,
+                    promptTitle,
+                    System.Windows.MessageBoxButton.YesNo,
+                    System.Windows.MessageBoxImage.Question);
+                shouldUpdate = askResult == System.Windows.MessageBoxResult.Yes;
+            }
+
+            if (shouldUpdate)
+            {
+                UpdateProfilesWithServerTunnel(created.Id, CloudflareTunnelToken);
+                CloudflareStatusText = $"✅ Nieuwe tunnel '{created.Name}' aangemaakt en doorgevoerd naar {Profiles.Count} profiel(en)!";
+            }
+            else
+            {
+                CloudflareStatusText = $"✅ Nieuwe tunnel '{created.Name}' aangemaakt en gekoppeld aan de server.";
+            }
         }
         catch (Exception ex)
         {
@@ -904,6 +958,39 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
         {
             IsCreatingTunnel = false;
         }
+    }
+
+    public void UpdateProfilesWithServerTunnel(string tunnelId, string tunnelToken)
+    {
+        foreach (var p in Profiles)
+        {
+            p.CloudflareTunnelId = tunnelId;
+            if (!string.IsNullOrWhiteSpace(tunnelToken))
+            {
+                p.CloudflareTunnelToken = tunnelToken;
+            }
+            if (string.IsNullOrWhiteSpace(p.CloudflareAccountId) && !string.IsNullOrWhiteSpace(CloudflareAccountId))
+            {
+                p.CloudflareAccountId = CloudflareAccountId;
+            }
+            if (string.IsNullOrWhiteSpace(p.CloudflareDomain) && !string.IsNullOrWhiteSpace(CloudflareDomain))
+            {
+                p.CloudflareDomain = CloudflareDomain;
+            }
+        }
+    }
+
+    [RelayCommand]
+    private void ApplyTunnelToProfiles()
+    {
+        if (string.IsNullOrWhiteSpace(CloudflareTunnelId))
+        {
+            CloudflareStatusText = "⚠️ Geen tunnel geselecteerd om door te voeren.";
+            return;
+        }
+
+        UpdateProfilesWithServerTunnel(CloudflareTunnelId, CloudflareTunnelToken);
+        CloudflareStatusText = $"✅ Tunnel '{CloudflareTunnelName ?? CloudflareTunnelId}' doorgevoerd naar alle {Profiles.Count} profielen op deze server.";
     }
 
     private async Task FetchTunnelTokenForSelectionAsync(string tunnelId)
@@ -987,7 +1074,7 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
             Description = $"Nieuw profiel op {Name}"
         };
 
-        var pVm = new ProfileSettingsItemViewModel(newProfile, _settingsService, _credentialService, _cloudflareService, _dockerService, _getAllProfilesAcrossServers(), Server);
+        var pVm = new ProfileSettingsItemViewModel(newProfile, _settingsService, _credentialService, _cloudflareService, _dockerService, _getAllProfilesAcrossServers(), Server, this);
         Profiles.Add(pVm);
         SelectedProfile = pVm;
     }
