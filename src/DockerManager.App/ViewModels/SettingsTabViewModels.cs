@@ -598,8 +598,24 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
     [ObservableProperty]
     private bool _isPipeSelected = true;
 
+    partial void OnIsPipeSelectedChanged(bool value)
+    {
+        if (value && IsTcpSelected)
+        {
+            IsTcpSelected = false;
+        }
+    }
+
     [ObservableProperty]
     private bool _isTcpSelected;
+
+    partial void OnIsTcpSelectedChanged(bool value)
+    {
+        if (value && IsPipeSelected)
+        {
+            IsPipeSelected = false;
+        }
+    }
 
     [ObservableProperty]
     private string _pipeName = "npipe://./pipe/docker_engine";

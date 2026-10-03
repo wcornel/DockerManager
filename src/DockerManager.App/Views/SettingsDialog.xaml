@@ -170,9 +170,13 @@
 
                             <!-- Host Type Radios -->
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                <RadioButton Content="{helpers:Loc Settings_HostLocal}" IsChecked="{Binding IsPipeSelected}" 
+                                <RadioButton Content="{helpers:Loc Settings_HostLocal}" 
+                                             IsChecked="{Binding IsPipeSelected, Mode=TwoWay}" 
+                                             GroupName="{Binding Server.Id}"
                                              Command="{Binding SelectPipeCommand}" Foreground="#0F172A" Margin="0,0,24,0" FontWeight="Medium"/>
-                                <RadioButton Content="{helpers:Loc Settings_HostTcp}" IsChecked="{Binding IsTcpSelected}" 
+                                <RadioButton Content="{helpers:Loc Settings_HostTcp}" 
+                                             IsChecked="{Binding IsTcpSelected, Mode=TwoWay}" 
+                                             GroupName="{Binding Server.Id}"
                                              Command="{Binding SelectTcpCommand}" Foreground="#0F172A" FontWeight="Medium"/>
                             </StackPanel>
 

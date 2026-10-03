@@ -258,7 +258,11 @@ public partial class SettingsViewModel : ObservableObject
 
         _settingsService.Settings.Servers = serverList;
 
-        if (!serverList.Any(s => s.Id.Equals(_settingsService.Settings.ActiveServerId, StringComparison.OrdinalIgnoreCase)))
+        if (SelectedTab is ServerSettingsTabViewModel currentTab)
+        {
+            _settingsService.Settings.ActiveServerId = currentTab.Server.Id;
+        }
+        else if (!serverList.Any(s => s.Id.Equals(_settingsService.Settings.ActiveServerId, StringComparison.OrdinalIgnoreCase)))
         {
             _settingsService.Settings.ActiveServerId = serverList.FirstOrDefault()?.Id ?? "local";
         }
@@ -266,6 +270,10 @@ public partial class SettingsViewModel : ObservableObject
         var activeServer = serverList.FirstOrDefault(s => s.Id.Equals(_settingsService.Settings.ActiveServerId, StringComparison.OrdinalIgnoreCase)) ?? serverList.FirstOrDefault();
         if (activeServer != null)
         {
+            _settingsService.Settings.DockerHostType = activeServer.HostType;
+            _settingsService.Settings.DockerPipeName = activeServer.PipeName;
+            _settingsService.Settings.DockerTcpUrl = activeServer.TcpUrl;
+
             _settingsService.Settings.CloudflareDomain = activeServer.CloudflareDomain;
             _settingsService.Settings.CloudflareAccountId = activeServer.CloudflareAccountId;
             _settingsService.Settings.CloudflareTunnelId = activeServer.CloudflareTunnelId;
