@@ -1262,6 +1262,132 @@ services:
             catch { }
         }
     }
+
+    [Fact]
+    public void TestServerCloudflareTunnel_SettingsTabAndPersistence()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "DockerManager_TestCF_" + Guid.NewGuid().ToString("N"));
+        var cred = new CredentialService(tempDir);
+        var tempSettingsPath = Path.Combine(tempDir, "settings.json");
+        var sett = new SettingsService(cred, tempSettingsPath);
+        var dock = new DockerService(sett, cred);
+        var cf = new CloudflareService(sett, cred);
+
+        try
+        {
+            var server = new DockerServerEnvironment
+            {
+                Name = "Linux VPS",
+                HostType = "Tcp",
+                TcpUrl = "tcp://1.2.3.4:2375",
+                CloudflareDomain = "mijnbedrijf.nl",
+                CloudflareAccountId = "acc_12345",
+                CloudflareTunnelId = "tun_abcde_67890",
+                CloudflareTunnelName = "vps-tunnel",
+                CloudflareTunnelToken = "token_xyz"
+            };
+
+            var profile = new ProfileModel { Name = "Standaard" };
+            var serverVm = new ServerSettingsTabViewModel(server, new[] { profile }, sett, cred, cf, dock, () => new[] { profile });
+
+            Assert.Equal("mijnbedrijf.nl", serverVm.CloudflareDomain);
+            Assert.Equal("acc_12345", serverVm.CloudflareAccountId);
+            Assert.Equal("tun_abcde_67890", serverVm.CloudflareTunnelId);
+            Assert.Equal("token_xyz", serverVm.CloudflareTunnelToken);
+            Assert.NotNull(serverVm.SelectedTunnel);
+            Assert.Equal("tun_abcde_67890", serverVm.SelectedTunnel.Id);
+
+            // Simulate selecting another tunnel
+            var newTunnel = new CloudflareTunnelInfo
+            {
+                Id = "tun_new_999",
+                Name = "vps-tunnel-2",
+                Status = "healthy"
+            };
+            serverVm.AvailableTunnels.Add(newTunnel);
+            serverVm.SelectedTunnel = newTunnel;
+
+            Assert.Equal("tun_new_999", serverVm.CloudflareTunnelId);
+            Assert.Equal("vps-tunnel-2", serverVm.CloudflareTunnelName);
+
+            // Apply to server
+            serverVm.ApplyToServer();
+            Assert.Equal("tun_new_999", server.CloudflareTunnelId);
+            Assert.Equal("vps-tunnel-2", server.CloudflareTunnelName);
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+            }
+            catch { }
+        }
+    }
+
+    [Fact]
+    public void TestProfileCloudflare_ServerLevelFallbackAndCopy()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "DockerManager_TestP_CF_" + Guid.NewGuid().ToString("N"));
+        var cred = new CredentialService(tempDir);
+        var tempSettingsPath = Path.Combine(tempDir, "settings.json");
+        var sett = new SettingsService(cred, tempSettingsPath);
+        var dock = new DockerService(sett, cred);
+        var cf = new CloudflareService(sett, cred);
+
+        try
+        {
+            var server = new DockerServerEnvironment
+            {
+                Name = "Windows Main",
+                CloudflareDomain = "myserver.com",
+                CloudflareAccountId = "acc_win",
+                CloudflareTunnelId = "tun_win_111",
+                CloudflareTunnelToken = "token_win_111",
+                CloudflareApiToken = "api_tok_111"
+            };
+
+            var profile = new ProfileModel
+            {
+                Name = "WebShop"
+            };
+
+            // 1. Effective domain and config fallback to server
+            Assert.Equal("myserver.com", profile.GetEffectiveCloudflareDomain(server));
+            var effectiveCf = profile.GetEffectiveCloudflareConfig(server);
+            Assert.NotNull(effectiveCf);
+            Assert.Equal("myserver.com", effectiveCf.Domain);
+            Assert.Equal("tun_win_111", effectiveCf.TunnelId);
+            Assert.Equal("token_win_111", effectiveCf.TunnelToken);
+
+            // 2. ProfileSettingsItemViewModel with parent server
+            var itemVm = new ProfileSettingsItemViewModel(profile, sett, cred, cf, dock, new[] { profile }, server);
+            Assert.Equal("myserver.com", itemVm.CloudflareDomain);
+            Assert.Equal("acc_win", itemVm.CloudflareAccountId);
+            Assert.Equal("tun_win_111", itemVm.CloudflareTunnelId);
+
+            // Quick Copy sources must include parent server as recommended first source
+            Assert.NotEmpty(itemVm.CopySources);
+            var serverSource = itemVm.CopySources.FirstOrDefault(s => s.IsServerDefaults);
+            Assert.NotNull(serverSource);
+            Assert.Contains("Windows Main", serverSource.DisplayName);
+
+            // Test copying from server source
+            itemVm.CloudflareDomain = "different.org";
+            itemVm.SelectedCopySource = serverSource;
+            itemVm.CopyCloudflareSettingsCommand.Execute(null);
+            Assert.Equal("myserver.com", itemVm.CloudflareDomain);
+            Assert.Contains("Windows Main", itemVm.CopyStatusMessage);
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+            }
+            catch { }
+        }
+    }
 }
 
 

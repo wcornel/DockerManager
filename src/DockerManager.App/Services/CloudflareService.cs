@@ -445,18 +445,23 @@ public class CloudflareService : ICloudflareService
         CancellationToken ct = default)
     {
         var settings = _settingsService.Settings;
+        var activeServer = settings.GetActiveServer();
+
         var token = !string.IsNullOrWhiteSpace(profileConfig?.ApiToken)
             ? profileConfig.ApiToken.Trim()
-            : _credentialService.GetCloudflareApiToken();
+            : (!string.IsNullOrWhiteSpace(activeServer?.CloudflareApiToken) ? activeServer.CloudflareApiToken.Trim() : _credentialService.GetCloudflareApiToken());
+
         var accountId = !string.IsNullOrWhiteSpace(profileConfig?.AccountId)
             ? profileConfig.AccountId.Trim()
-            : settings.CloudflareAccountId.Trim();
+            : (!string.IsNullOrWhiteSpace(activeServer?.CloudflareAccountId) ? activeServer.CloudflareAccountId.Trim() : settings.CloudflareAccountId.Trim());
+
         var tunnelId = !string.IsNullOrWhiteSpace(profileConfig?.TunnelId)
             ? profileConfig.TunnelId.Trim()
-            : settings.CloudflareTunnelId.Trim();
+            : (!string.IsNullOrWhiteSpace(activeServer?.CloudflareTunnelId) ? activeServer.CloudflareTunnelId.Trim() : settings.CloudflareTunnelId.Trim());
+
         var domain = !string.IsNullOrWhiteSpace(profileConfig?.Domain)
             ? profileConfig.Domain.Trim().TrimStart('.').ToLowerInvariant()
-            : settings.CloudflareDomain.Trim().TrimStart('.').ToLowerInvariant();
+            : (!string.IsNullOrWhiteSpace(activeServer?.CloudflareDomain) ? activeServer.CloudflareDomain.Trim().TrimStart('.').ToLowerInvariant() : settings.CloudflareDomain.Trim().TrimStart('.').ToLowerInvariant());
 
         if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(accountId) || string.IsNullOrWhiteSpace(tunnelId))
         {
@@ -663,18 +668,23 @@ public class CloudflareService : ICloudflareService
         }
 
         var settings = _settingsService.Settings;
+        var activeServer = settings.GetActiveServer();
+
         var token = !string.IsNullOrWhiteSpace(profileConfig?.ApiToken)
             ? profileConfig.ApiToken.Trim()
-            : _credentialService.GetCloudflareApiToken();
+            : (!string.IsNullOrWhiteSpace(activeServer?.CloudflareApiToken) ? activeServer.CloudflareApiToken.Trim() : _credentialService.GetCloudflareApiToken());
+
         var accountId = !string.IsNullOrWhiteSpace(profileConfig?.AccountId)
             ? profileConfig.AccountId.Trim()
-            : settings.CloudflareAccountId.Trim();
+            : (!string.IsNullOrWhiteSpace(activeServer?.CloudflareAccountId) ? activeServer.CloudflareAccountId.Trim() : settings.CloudflareAccountId.Trim());
+
         var tunnelId = !string.IsNullOrWhiteSpace(profileConfig?.TunnelId)
             ? profileConfig.TunnelId.Trim()
-            : settings.CloudflareTunnelId.Trim();
+            : (!string.IsNullOrWhiteSpace(activeServer?.CloudflareTunnelId) ? activeServer.CloudflareTunnelId.Trim() : settings.CloudflareTunnelId.Trim());
+
         var domain = !string.IsNullOrWhiteSpace(profileConfig?.Domain)
             ? profileConfig.Domain.Trim().TrimStart('.').ToLowerInvariant()
-            : settings.CloudflareDomain.Trim().TrimStart('.').ToLowerInvariant();
+            : (!string.IsNullOrWhiteSpace(activeServer?.CloudflareDomain) ? activeServer.CloudflareDomain.Trim().TrimStart('.').ToLowerInvariant() : settings.CloudflareDomain.Trim().TrimStart('.').ToLowerInvariant());
 
         if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(accountId) || string.IsNullOrWhiteSpace(tunnelId))
         {
@@ -822,6 +832,11 @@ public class CloudflareService : ICloudflareService
         if (string.IsNullOrWhiteSpace(token))
         {
             token = profile.Cloudflare?.TunnelToken;
+        }
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            var server = _settingsService.Settings.GetActiveServer();
+            token = server?.CloudflareTunnelToken;
         }
         if (string.IsNullOrWhiteSpace(token))
         {

@@ -191,6 +191,7 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
     private readonly ICredentialService _credentialService;
     private readonly ICloudflareService _cloudflareService;
     private readonly IDockerService _dockerService;
+    private readonly DockerServerEnvironment? _parentServer;
 
     public ProfileModel Profile { get; }
     public string OriginalName { get; }
@@ -263,13 +264,15 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
         ICredentialService credentialService,
         ICloudflareService cloudflareService,
         IDockerService dockerService,
-        IEnumerable<ProfileModel> allAvailableProfiles)
+        IEnumerable<ProfileModel> allAvailableProfiles,
+        DockerServerEnvironment? parentServer = null)
     {
         Profile = profile;
         _settingsService = settingsService;
         _credentialService = credentialService;
         _cloudflareService = cloudflareService;
         _dockerService = dockerService;
+        _parentServer = parentServer;
 
         OriginalName = profile.Name;
         Name = profile.Name;
@@ -281,13 +284,27 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
 
         // Cloudflare
         var cf = profile.Cloudflare ?? new ProfileCloudflareConfig();
-        CloudflareDomain = !string.IsNullOrWhiteSpace(cf.Domain) ? cf.Domain : (globalSettings.CloudflareDomain ?? string.Empty);
-        CloudflareAccountId = !string.IsNullOrWhiteSpace(cf.AccountId) ? cf.AccountId : (globalSettings.CloudflareAccountId ?? string.Empty);
-        CloudflareTunnelId = !string.IsNullOrWhiteSpace(cf.TunnelId) ? cf.TunnelId : (globalSettings.CloudflareTunnelId ?? string.Empty);
-        CloudflareTunnelToken = !string.IsNullOrWhiteSpace(cf.TunnelToken) ? cf.TunnelToken : (globalSettings.CloudflareTunnelToken ?? string.Empty);
+        var srvDomain = parentServer?.CloudflareDomain;
+        var srvAccountId = parentServer?.CloudflareAccountId;
+        var srvTunnelId = parentServer?.CloudflareTunnelId;
+        var srvTunnelToken = parentServer?.CloudflareTunnelToken;
+        var srvApiToken = parentServer?.CloudflareApiToken;
+
+        CloudflareDomain = !string.IsNullOrWhiteSpace(cf.Domain)
+            ? cf.Domain
+            : (!string.IsNullOrWhiteSpace(srvDomain) ? srvDomain : (globalSettings.CloudflareDomain ?? string.Empty));
+        CloudflareAccountId = !string.IsNullOrWhiteSpace(cf.AccountId)
+            ? cf.AccountId
+            : (!string.IsNullOrWhiteSpace(srvAccountId) ? srvAccountId : (globalSettings.CloudflareAccountId ?? string.Empty));
+        CloudflareTunnelId = !string.IsNullOrWhiteSpace(cf.TunnelId)
+            ? cf.TunnelId
+            : (!string.IsNullOrWhiteSpace(srvTunnelId) ? srvTunnelId : (globalSettings.CloudflareTunnelId ?? string.Empty));
+        CloudflareTunnelToken = !string.IsNullOrWhiteSpace(cf.TunnelToken)
+            ? cf.TunnelToken
+            : (!string.IsNullOrWhiteSpace(srvTunnelToken) ? srvTunnelToken : (globalSettings.CloudflareTunnelToken ?? string.Empty));
         CloudflareApiToken = !string.IsNullOrWhiteSpace(cf.ApiToken)
             ? cf.ApiToken
-            : (_credentialService.GetCloudflareApiToken() ?? string.Empty);
+            : (!string.IsNullOrWhiteSpace(srvApiToken) ? srvApiToken : (_credentialService.GetCloudflareApiToken() ?? string.Empty));
 
         // Registry
         var reg = profile.Registry ?? new ProfileRegistryConfig();
@@ -309,14 +326,25 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
     {
         CopySources.Clear();
 
-        // 1. Always offer Global Defaults
+        // 1. Offer Parent Server if available
+        if (_parentServer != null)
+        {
+            CopySources.Add(new ProfileCopySource
+            {
+                DisplayName = $"🖥️ Server '{_parentServer.Name}' (Aanbevolen)",
+                IsServerDefaults = true,
+                SourceServer = _parentServer
+            });
+        }
+
+        // 2. Always offer Global Defaults
         CopySources.Add(new ProfileCopySource
         {
             DisplayName = "⚙️ Globale Standaard Instellingen (App)",
             IsGlobalDefaults = true
         });
 
-        // 2. Offer all other profiles
+        // 3. Offer all other profiles
         foreach (var p in allAvailableProfiles.Where(p => !p.Name.Equals(OriginalName, StringComparison.OrdinalIgnoreCase)))
         {
             var desc = string.IsNullOrWhiteSpace(p.Description) ? "" : $" ({p.Description})";
@@ -336,7 +364,17 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
     {
         if (SelectedCopySource == null) return;
 
-        if (SelectedCopySource.IsGlobalDefaults)
+        if (SelectedCopySource.IsServerDefaults && SelectedCopySource.SourceServer != null)
+        {
+            var s = SelectedCopySource.SourceServer;
+            CloudflareDomain = s.CloudflareDomain ?? string.Empty;
+            CloudflareAccountId = s.CloudflareAccountId ?? string.Empty;
+            CloudflareTunnelId = s.CloudflareTunnelId ?? string.Empty;
+            CloudflareTunnelToken = s.CloudflareTunnelToken ?? string.Empty;
+            CloudflareApiToken = s.CloudflareApiToken ?? string.Empty;
+            CopyStatusMessage = $"✅ Cloudflare overgenomen van server '{s.Name}'!";
+        }
+        else if (SelectedCopySource.IsGlobalDefaults)
         {
             var s = _settingsService.Settings;
             CloudflareDomain = s.CloudflareDomain ?? string.Empty;
@@ -575,6 +613,55 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
     [ObservableProperty]
     private bool _isTestingDocker;
 
+    // Cloudflare Tunnel (1 tunnel per server)
+    [ObservableProperty]
+    private string _cloudflareDomain = string.Empty;
+
+    [ObservableProperty]
+    private string _cloudflareAccountId = string.Empty;
+
+    [ObservableProperty]
+    private string _cloudflareApiToken = string.Empty;
+
+    [ObservableProperty]
+    private string _cloudflareTunnelId = string.Empty;
+
+    [ObservableProperty]
+    private string _cloudflareTunnelName = string.Empty;
+
+    [ObservableProperty]
+    private string _cloudflareTunnelToken = string.Empty;
+
+    [ObservableProperty]
+    private string _newTunnelName = string.Empty;
+
+    [ObservableProperty]
+    private string _cloudflareStatusText = string.Empty;
+
+    [ObservableProperty]
+    private bool _isLoadingTunnels;
+
+    [ObservableProperty]
+    private bool _isCreatingTunnel;
+
+    [ObservableProperty]
+    private bool _isTestingCloudflare;
+
+    public ObservableCollection<CloudflareTunnelInfo> AvailableTunnels { get; } = new();
+
+    [ObservableProperty]
+    private CloudflareTunnelInfo? _selectedTunnel;
+
+    partial void OnSelectedTunnelChanged(CloudflareTunnelInfo? value)
+    {
+        if (value != null)
+        {
+            CloudflareTunnelId = value.Id;
+            CloudflareTunnelName = value.Name;
+            _ = FetchTunnelTokenForSelectionAsync(value.Id);
+        }
+    }
+
     public ObservableCollection<ProfileSettingsItemViewModel> Profiles { get; } = new();
 
     [ObservableProperty]
@@ -628,9 +715,46 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
         PipeName = string.IsNullOrWhiteSpace(server.PipeName) ? "npipe://./pipe/docker_engine" : server.PipeName;
         TcpUrl = string.IsNullOrWhiteSpace(server.TcpUrl) ? "tcp://192.168.1.50:2375" : server.TcpUrl;
 
+        // Cloudflare initialization
+        CloudflareDomain = server.CloudflareDomain ?? string.Empty;
+        CloudflareAccountId = server.CloudflareAccountId ?? string.Empty;
+        CloudflareTunnelId = server.CloudflareTunnelId ?? string.Empty;
+        CloudflareTunnelName = server.CloudflareTunnelName ?? string.Empty;
+        CloudflareTunnelToken = server.CloudflareTunnelToken ?? string.Empty;
+        CloudflareApiToken = server.CloudflareApiToken ?? string.Empty;
+
+        // Fallbacks from global settings if server-level is empty
+        if (string.IsNullOrWhiteSpace(CloudflareDomain))
+            CloudflareDomain = _settingsService.Settings.CloudflareDomain ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(CloudflareAccountId))
+            CloudflareAccountId = _settingsService.Settings.CloudflareAccountId ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(CloudflareApiToken))
+            CloudflareApiToken = _credentialService.GetCloudflareApiToken() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(CloudflareTunnelId) && !string.IsNullOrWhiteSpace(_settingsService.Settings.CloudflareTunnelId))
+        {
+            CloudflareTunnelId = _settingsService.Settings.CloudflareTunnelId;
+            CloudflareTunnelToken = _settingsService.Settings.CloudflareTunnelToken ?? string.Empty;
+        }
+
+        var cleanServer = AppSettings.StripLeadingEmojis(server.Name).Trim().ToLowerInvariant().Replace(" ", "-");
+        NewTunnelName = string.IsNullOrWhiteSpace(cleanServer) ? "dockermanager-tunnel" : $"dockermanager-{cleanServer}";
+
+        if (!string.IsNullOrWhiteSpace(CloudflareTunnelId))
+        {
+            var existingTunnel = new CloudflareTunnelInfo
+            {
+                Id = CloudflareTunnelId,
+                Name = string.IsNullOrWhiteSpace(CloudflareTunnelName) ? "Gekoppelde Tunnel" : CloudflareTunnelName,
+                Status = "active"
+            };
+            AvailableTunnels.Add(existingTunnel);
+            SelectedTunnel = existingTunnel;
+            CloudflareStatusText = $"Gekoppeld: {existingTunnel.DisplayName}";
+        }
+
         foreach (var p in serverProfiles)
         {
-            var pVm = new ProfileSettingsItemViewModel(p, _settingsService, _credentialService, _cloudflareService, _dockerService, _getAllProfilesAcrossServers());
+            var pVm = new ProfileSettingsItemViewModel(p, _settingsService, _credentialService, _cloudflareService, _dockerService, _getAllProfilesAcrossServers(), Server);
             Profiles.Add(pVm);
         }
 
@@ -652,6 +776,192 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
     }
 
     [RelayCommand]
+    private void CopyGlobalCloudflare()
+    {
+        var s = _settingsService.Settings;
+        if (!string.IsNullOrWhiteSpace(s.CloudflareDomain)) CloudflareDomain = s.CloudflareDomain;
+        if (!string.IsNullOrWhiteSpace(s.CloudflareAccountId)) CloudflareAccountId = s.CloudflareAccountId;
+        var token = _credentialService.GetCloudflareApiToken();
+        if (!string.IsNullOrWhiteSpace(token)) CloudflareApiToken = token;
+        CloudflareStatusText = "Cloudflare instellingen overgenomen van globale app-instellingen.";
+    }
+
+    [RelayCommand]
+    private async Task RefreshTunnelsAsync()
+    {
+        if (IsLoadingTunnels) return;
+        IsLoadingTunnels = true;
+        CloudflareStatusText = "Tunnels ophalen uit Cloudflare...";
+
+        try
+        {
+            var token = !string.IsNullOrWhiteSpace(CloudflareApiToken) ? CloudflareApiToken : _credentialService.GetCloudflareApiToken();
+            var accountId = !string.IsNullOrWhiteSpace(CloudflareAccountId) ? CloudflareAccountId : _settingsService.Settings.CloudflareAccountId;
+
+            if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(accountId))
+            {
+                CloudflareStatusText = "❌ Vul eerst Cloudflare Account ID en API Token in.";
+                return;
+            }
+
+            var (success, message, tunnels) = await _cloudflareService.ListTunnelsAsync(token, accountId);
+            if (!success)
+            {
+                CloudflareStatusText = $"❌ {message}";
+                return;
+            }
+
+            AvailableTunnels.Clear();
+            foreach (var t in tunnels)
+            {
+                AvailableTunnels.Add(t);
+            }
+
+            if (!string.IsNullOrWhiteSpace(CloudflareTunnelId))
+            {
+                var match = AvailableTunnels.FirstOrDefault(t => t.Id.Equals(CloudflareTunnelId, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                {
+                    SelectedTunnel = match;
+                }
+            }
+
+            CloudflareStatusText = $"✅ {AvailableTunnels.Count} tunnel(s) opgehaald.";
+        }
+        catch (Exception ex)
+        {
+            CloudflareStatusText = $"❌ Fout bij ophalen tunnels: {ex.Message}";
+        }
+        finally
+        {
+            IsLoadingTunnels = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task CreateNewTunnelAsync()
+    {
+        if (IsCreatingTunnel) return;
+        IsCreatingTunnel = true;
+        CloudflareStatusText = "Nieuwe tunnel aanmaken in Cloudflare...";
+
+        try
+        {
+            var token = !string.IsNullOrWhiteSpace(CloudflareApiToken) ? CloudflareApiToken : _credentialService.GetCloudflareApiToken();
+            var accountId = !string.IsNullOrWhiteSpace(CloudflareAccountId) ? CloudflareAccountId : _settingsService.Settings.CloudflareAccountId;
+
+            if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(accountId))
+            {
+                CloudflareStatusText = "❌ Vul eerst Cloudflare Account ID en API Token in.";
+                return;
+            }
+
+            var cleanName = !string.IsNullOrWhiteSpace(NewTunnelName)
+                ? NewTunnelName.Trim()
+                : $"dockermanager-{AppSettings.StripLeadingEmojis(Server.Name).Trim().ToLowerInvariant().Replace(" ", "-")}";
+
+            var (success, message, created) = await _cloudflareService.CreateTunnelAsync(cleanName, token, accountId);
+            if (!success || created == null)
+            {
+                CloudflareStatusText = $"❌ {message}";
+                return;
+            }
+
+            AvailableTunnels.Insert(0, created);
+            CloudflareTunnelId = created.Id;
+            CloudflareTunnelName = created.Name;
+            SelectedTunnel = created;
+
+            var runToken = await _cloudflareService.FetchTunnelTokenAsync(token, accountId, created.Id);
+            if (!string.IsNullOrWhiteSpace(runToken))
+            {
+                CloudflareTunnelToken = runToken;
+            }
+
+            CloudflareStatusText = $"✅ Nieuwe tunnel '{created.Name}' aangemaakt en gekoppeld!";
+        }
+        catch (Exception ex)
+        {
+            CloudflareStatusText = $"❌ Fout bij aanmaken tunnel: {ex.Message}";
+        }
+        finally
+        {
+            IsCreatingTunnel = false;
+        }
+    }
+
+    private async Task FetchTunnelTokenForSelectionAsync(string tunnelId)
+    {
+        if (string.IsNullOrWhiteSpace(tunnelId)) return;
+
+        var token = !string.IsNullOrWhiteSpace(CloudflareApiToken) ? CloudflareApiToken : _credentialService.GetCloudflareApiToken();
+        var accountId = !string.IsNullOrWhiteSpace(CloudflareAccountId) ? CloudflareAccountId : _settingsService.Settings.CloudflareAccountId;
+
+        if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(accountId)) return;
+
+        try
+        {
+            var runToken = await _cloudflareService.FetchTunnelTokenAsync(token, accountId, tunnelId);
+            if (!string.IsNullOrWhiteSpace(runToken))
+            {
+                CloudflareTunnelToken = runToken;
+                CloudflareStatusText = $"✅ Tunnel '{CloudflareTunnelName}' geselecteerd (token geladen)";
+            }
+        }
+        catch (Exception ex)
+        {
+            CloudflareStatusText = $"⚠️ Token kon niet worden opgehaald: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private async Task TestCloudflareConnectionAsync()
+    {
+        if (IsTestingCloudflare) return;
+        IsTestingCloudflare = true;
+        CloudflareStatusText = "Cloudflare verbinding testen...";
+
+        try
+        {
+            var token = !string.IsNullOrWhiteSpace(CloudflareApiToken) ? CloudflareApiToken : _credentialService.GetCloudflareApiToken();
+            var accountId = !string.IsNullOrWhiteSpace(CloudflareAccountId) ? CloudflareAccountId : _settingsService.Settings.CloudflareAccountId;
+            var tunnelId = CloudflareTunnelId;
+
+            if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(accountId))
+            {
+                CloudflareStatusText = "❌ Vul eerst Cloudflare Account ID en API Token in.";
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(tunnelId))
+            {
+                CloudflareStatusText = "⚠️ Geen tunnel geselecteerd. Selecteer of maak eerst een tunnel aan.";
+                return;
+            }
+
+            var (success, message, _) = await _cloudflareService.TestConnectionAsync(token, accountId, tunnelId);
+            CloudflareStatusText = success ? $"✅ {message}" : $"❌ {message}";
+
+            if (success)
+            {
+                var runToken = await _cloudflareService.FetchTunnelTokenAsync(token, accountId, tunnelId);
+                if (!string.IsNullOrWhiteSpace(runToken))
+                {
+                    CloudflareTunnelToken = runToken;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            CloudflareStatusText = $"❌ Fout: {ex.Message}";
+        }
+        finally
+        {
+            IsTestingCloudflare = false;
+        }
+    }
+
+    [RelayCommand]
     private void AddProfile()
     {
         int counter = Profiles.Count + 1;
@@ -661,7 +971,7 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
             Description = $"Nieuw profiel op {Name}"
         };
 
-        var pVm = new ProfileSettingsItemViewModel(newProfile, _settingsService, _credentialService, _cloudflareService, _dockerService, _getAllProfilesAcrossServers());
+        var pVm = new ProfileSettingsItemViewModel(newProfile, _settingsService, _credentialService, _cloudflareService, _dockerService, _getAllProfilesAcrossServers(), Server);
         Profiles.Add(pVm);
         SelectedProfile = pVm;
     }
@@ -722,6 +1032,18 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
         Server.TcpUrl = TcpUrl.Trim();
         Server.ProfilesSubfolder = string.IsNullOrWhiteSpace(ProfilesSubfolder) ? "local" : ProfilesSubfolder.Trim();
         Server.VolumesRootPath = VolumesRootPath.Trim();
+
+        Server.CloudflareDomain = CloudflareDomain.Trim();
+        Server.CloudflareAccountId = CloudflareAccountId.Trim();
+        Server.CloudflareTunnelId = CloudflareTunnelId.Trim();
+        Server.CloudflareTunnelName = CloudflareTunnelName.Trim();
+        Server.CloudflareTunnelToken = CloudflareTunnelToken.Trim();
+        Server.CloudflareApiToken = CloudflareApiToken.Trim();
+
+        if (!string.IsNullOrWhiteSpace(CloudflareApiToken))
+        {
+            _credentialService.SaveCloudflareApiToken(CloudflareApiToken.Trim());
+        }
 
         foreach (var pVm in Profiles)
         {
