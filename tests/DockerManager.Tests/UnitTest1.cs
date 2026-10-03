@@ -1390,9 +1390,9 @@ services:
     }
 
     [Fact]
-    public void TestServerTunnel_ApplyToProfilesAndPrompt()
+    public void TestServerTunnel_AutomaticInheritanceAcrossProfiles()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), "DockerManager_TestPrompt_" + Guid.NewGuid().ToString("N"));
+        var tempDir = Path.Combine(Path.GetTempPath(), "DockerManager_TestInheritance_" + Guid.NewGuid().ToString("N"));
         var cred = new CredentialService(tempDir);
         var tempSettingsPath = Path.Combine(tempDir, "settings.json");
         var sett = new SettingsService(cred, tempSettingsPath);
@@ -1407,35 +1407,45 @@ services:
                 CloudflareDomain = "mijnbedrijf.nl",
                 CloudflareAccountId = "acc_12345",
                 CloudflareTunnelId = "tun_old",
+                CloudflareTunnelName = "vps-tunnel-oud",
                 CloudflareTunnelToken = "token_old"
             };
 
-            var profile1 = new ProfileModel { Name = "Web", Cloudflare = new ProfileCloudflareConfig { TunnelId = "tun_old", TunnelToken = "token_old" } };
-            var profile2 = new ProfileModel { Name = "Api", Cloudflare = new ProfileCloudflareConfig { TunnelId = "tun_old", TunnelToken = "token_old" } };
+            var profile1 = new ProfileModel { Name = "Web", Cloudflare = new ProfileCloudflareConfig() };
+            var profile2 = new ProfileModel { Name = "Api", Cloudflare = new ProfileCloudflareConfig() };
 
             var serverVm = new ServerSettingsTabViewModel(server, new[] { profile1, profile2 }, sett, cred, cf, dock, () => new[] { profile1, profile2 });
 
             Assert.Equal(2, serverVm.Profiles.Count);
-            Assert.Equal("tun_old", serverVm.Profiles[0].CloudflareTunnelId);
-            Assert.Equal("tun_old", serverVm.Profiles[1].CloudflareTunnelId);
+            Assert.Contains("vps-tunnel-oud", serverVm.Profiles[0].ServerTunnelSummary);
+            Assert.Contains("tun_old", serverVm.Profiles[0].ServerTunnelSummary);
+            Assert.Contains("vps-tunnel-oud", serverVm.Profiles[1].ServerTunnelSummary);
 
-            // 1. Test ApplyTunnelToProfilesCommand
+            // 1. When server tunnel changes, profiles inherit the new summary automatically without prompts or sync buttons
             serverVm.CloudflareTunnelId = "tun_new_guid_123";
+            serverVm.CloudflareTunnelName = "vps-tunnel-nieuw";
             serverVm.CloudflareTunnelToken = "token_new_456";
-            serverVm.ApplyTunnelToProfilesCommand.Execute(null);
 
-            Assert.Equal("tun_new_guid_123", serverVm.Profiles[0].CloudflareTunnelId);
-            Assert.Equal("token_new_456", serverVm.Profiles[0].CloudflareTunnelToken);
-            Assert.Equal("tun_new_guid_123", serverVm.Profiles[1].CloudflareTunnelId);
-            Assert.Equal("token_new_456", serverVm.Profiles[1].CloudflareTunnelToken);
-            Assert.Contains("doorgevoerd naar alle 2 profielen", serverVm.CloudflareStatusText);
+            Assert.Equal("🔗 vps-tunnel-nieuw (tun_new_guid_123)", serverVm.Profiles[0].ServerTunnelSummary);
+            Assert.Equal("🔗 vps-tunnel-nieuw (tun_new_guid_123)", serverVm.Profiles[1].ServerTunnelSummary);
 
-            // 2. Test CopyTunnelFromServerCommand on profile level
-            serverVm.Profiles[0].CloudflareTunnelId = "manual_override";
-            Assert.Equal("manual_override", serverVm.Profiles[0].CloudflareTunnelId);
-            serverVm.Profiles[0].CopyTunnelFromServerCommand.Execute(null);
-            Assert.Equal("tun_new_guid_123", serverVm.Profiles[0].CloudflareTunnelId);
-            Assert.Contains("overgenomen in dit profiel", serverVm.Profiles[0].CopyStatusMessage);
+            // 2. Applying server settings saves server values, and profiles stay clean so GetEffectiveCloudflareConfig inherits from server
+            serverVm.ApplyToServer();
+
+            var effective1 = profile1.GetEffectiveCloudflareConfig(server);
+            var effective2 = profile2.GetEffectiveCloudflareConfig(server);
+
+            Assert.Equal("tun_new_guid_123", effective1.TunnelId);
+            Assert.Equal("token_new_456", effective1.TunnelToken);
+            Assert.Equal("acc_12345", effective1.AccountId);
+            Assert.Equal("mijnbedrijf.nl", effective1.Domain);
+
+            Assert.Equal("tun_new_guid_123", effective2.TunnelId);
+            Assert.Equal("token_new_456", effective2.TunnelToken);
+
+            // Profiles themselves have empty TunnelId so they don't store stale overrides
+            Assert.Empty(profile1.Cloudflare.TunnelId);
+            Assert.Empty(profile2.Cloudflare.TunnelId);
         }
         finally
         {
