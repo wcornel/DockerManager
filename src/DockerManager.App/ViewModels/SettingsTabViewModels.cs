@@ -240,6 +240,29 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
     [ObservableProperty]
     private string _cloudflareTestStatus = string.Empty;
 
+    public string ServerTunnelSummary
+    {
+        get
+        {
+            var tunnelName = _parentServerVm?.CloudflareTunnelName ?? _parentServer?.CloudflareTunnelName;
+            var tunnelId = _parentServerVm?.CloudflareTunnelId ?? _parentServer?.CloudflareTunnelId;
+
+            if (!string.IsNullOrWhiteSpace(tunnelName) && !string.IsNullOrWhiteSpace(tunnelId))
+                return $"🔗 {tunnelName} ({tunnelId})";
+            if (!string.IsNullOrWhiteSpace(tunnelId))
+                return $"🔗 {tunnelId}";
+            if (!string.IsNullOrWhiteSpace(tunnelName))
+                return $"🔗 {tunnelName}";
+
+            return "⚠️ Geen tunnel gekoppeld op de server";
+        }
+    }
+
+    public void RefreshServerTunnelSummary()
+    {
+        OnPropertyChanged(nameof(ServerTunnelSummary));
+    }
+
     // Registry
     [ObservableProperty]
     private string _registryServer = "ghcr.io";
@@ -443,61 +466,6 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void CopyTunnelFromServer()
-    {
-        var tunnelId = _parentServerVm?.CloudflareTunnelId ?? _parentServer?.CloudflareTunnelId;
-        var tunnelToken = _parentServerVm?.CloudflareTunnelToken ?? _parentServer?.CloudflareTunnelToken;
-        var accountId = _parentServerVm?.CloudflareAccountId ?? _parentServer?.CloudflareAccountId;
-        var domain = _parentServerVm?.CloudflareDomain ?? _parentServer?.CloudflareDomain;
-
-        if (string.IsNullOrWhiteSpace(tunnelId))
-        {
-            CopyStatusMessage = "⚠️ De server heeft nog geen gekoppelde tunnel.";
-            return;
-        }
-
-        CloudflareTunnelId = tunnelId;
-        if (!string.IsNullOrWhiteSpace(tunnelToken)) CloudflareTunnelToken = tunnelToken;
-        if (string.IsNullOrWhiteSpace(CloudflareAccountId) && !string.IsNullOrWhiteSpace(accountId)) CloudflareAccountId = accountId;
-        if (string.IsNullOrWhiteSpace(CloudflareDomain) && !string.IsNullOrWhiteSpace(domain)) CloudflareDomain = domain;
-
-        CopyStatusMessage = $"✅ Server tunnel '{tunnelId}' overgenomen in dit profiel.";
-    }
-
-    [RelayCommand]
-    private async Task TestCloudflareAsync()
-    {
-        if (string.IsNullOrWhiteSpace(CloudflareApiToken) || string.IsNullOrWhiteSpace(CloudflareAccountId))
-        {
-            CloudflareTestStatus = "⚠️ Vul minimaal API Token en Account ID in om te testen.";
-            return;
-        }
-
-        IsTestingCloudflare = true;
-        CloudflareTestStatus = "Cloudflare verbinding testen...";
-
-        try
-        {
-            var (ok, msg, name) = await _cloudflareService.TestConnectionAsync(
-                overrideToken: CloudflareApiToken.Trim(),
-                overrideAccountId: CloudflareAccountId.Trim(),
-                overrideTunnelId: !string.IsNullOrWhiteSpace(CloudflareTunnelId) ? CloudflareTunnelId.Trim() : null);
-
-            CloudflareTestStatus = ok
-                ? $"✅ Geslaagd! {(name != null ? $"Tunnel '{name}' actief" : msg)}"
-                : $"❌ Mislukt: {msg}";
-        }
-        catch (Exception ex)
-        {
-            CloudflareTestStatus = $"❌ Fout: {ex.Message}";
-        }
-        finally
-        {
-            IsTestingCloudflare = false;
-        }
-    }
-
-    [RelayCommand]
     private async Task TestRegistryAsync()
     {
         if (string.IsNullOrWhiteSpace(RegistryServer))
@@ -539,13 +507,13 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
         Profile.AutoStopPreviousOnSwitch = AutoStopPreviousOnSwitch;
         Profile.VolumesSubfolder = VolumesSubfolder.Trim();
 
-        // Cloudflare
+        // Cloudflare (domain override only; tunnel is inherited dynamically from server)
         Profile.Cloudflare ??= new ProfileCloudflareConfig();
         Profile.Cloudflare.Domain = CloudflareDomain.Trim();
-        Profile.Cloudflare.AccountId = CloudflareAccountId.Trim();
-        Profile.Cloudflare.TunnelId = CloudflareTunnelId.Trim();
-        Profile.Cloudflare.TunnelToken = CloudflareTunnelToken.Trim();
-        Profile.Cloudflare.ApiToken = CloudflareApiToken.Trim();
+        Profile.Cloudflare.TunnelId = string.Empty;
+        Profile.Cloudflare.TunnelToken = string.Empty;
+        Profile.Cloudflare.AccountId = string.Empty;
+        Profile.Cloudflare.ApiToken = string.Empty;
 
         // Registry
         Profile.Registry ??= new ProfileRegistryConfig();
@@ -667,8 +635,26 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
     [ObservableProperty]
     private string _cloudflareTunnelId = string.Empty;
 
+    partial void OnCloudflareTunnelIdChanged(string value)
+    {
+        NotifyProfilesTunnelChanged();
+    }
+
     [ObservableProperty]
     private string _cloudflareTunnelName = string.Empty;
+
+    partial void OnCloudflareTunnelNameChanged(string value)
+    {
+        NotifyProfilesTunnelChanged();
+    }
+
+    public void NotifyProfilesTunnelChanged()
+    {
+        foreach (var p in Profiles)
+        {
+            p.RefreshServerTunnelSummary();
+        }
+    }
 
     [ObservableProperty]
     private string _cloudflareTunnelToken = string.Empty;
@@ -704,8 +690,6 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
     }
 
     public ObservableCollection<ProfileSettingsItemViewModel> Profiles { get; } = new();
-
-    public Func<string, string, bool>? ConfirmPrompt { get; set; }
 
     [ObservableProperty]
     private ProfileSettingsItemViewModel? _selectedProfile;
@@ -921,34 +905,8 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
                 CloudflareTunnelToken = runToken;
             }
 
-            bool shouldUpdate = false;
-            string promptMsg = $"Nieuwe tunnel '{created.Name}' (ID: {created.Id}) is succesvol aangemaakt in Cloudflare!\n\n" +
-                               $"Wil je deze nieuwe tunnel direct instellen voor alle profielen op deze server ({Name})?";
-            string promptTitle = "Tunnel GUIDs bijwerken";
-
-            if (ConfirmPrompt != null)
-            {
-                shouldUpdate = ConfirmPrompt(promptMsg, promptTitle);
-            }
-            else if (System.Windows.Application.Current != null)
-            {
-                var askResult = System.Windows.MessageBox.Show(
-                    promptMsg,
-                    promptTitle,
-                    System.Windows.MessageBoxButton.YesNo,
-                    System.Windows.MessageBoxImage.Question);
-                shouldUpdate = askResult == System.Windows.MessageBoxResult.Yes;
-            }
-
-            if (shouldUpdate)
-            {
-                UpdateProfilesWithServerTunnel(created.Id, CloudflareTunnelToken);
-                CloudflareStatusText = $"✅ Nieuwe tunnel '{created.Name}' aangemaakt en doorgevoerd naar {Profiles.Count} profiel(en)!";
-            }
-            else
-            {
-                CloudflareStatusText = $"✅ Nieuwe tunnel '{created.Name}' aangemaakt en gekoppeld aan de server.";
-            }
+            NotifyProfilesTunnelChanged();
+            CloudflareStatusText = $"✅ Nieuwe tunnel '{created.Name}' aangemaakt en gekoppeld aan de server.";
         }
         catch (Exception ex)
         {
@@ -958,39 +916,6 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
         {
             IsCreatingTunnel = false;
         }
-    }
-
-    public void UpdateProfilesWithServerTunnel(string tunnelId, string tunnelToken)
-    {
-        foreach (var p in Profiles)
-        {
-            p.CloudflareTunnelId = tunnelId;
-            if (!string.IsNullOrWhiteSpace(tunnelToken))
-            {
-                p.CloudflareTunnelToken = tunnelToken;
-            }
-            if (string.IsNullOrWhiteSpace(p.CloudflareAccountId) && !string.IsNullOrWhiteSpace(CloudflareAccountId))
-            {
-                p.CloudflareAccountId = CloudflareAccountId;
-            }
-            if (string.IsNullOrWhiteSpace(p.CloudflareDomain) && !string.IsNullOrWhiteSpace(CloudflareDomain))
-            {
-                p.CloudflareDomain = CloudflareDomain;
-            }
-        }
-    }
-
-    [RelayCommand]
-    private void ApplyTunnelToProfiles()
-    {
-        if (string.IsNullOrWhiteSpace(CloudflareTunnelId))
-        {
-            CloudflareStatusText = "⚠️ Geen tunnel geselecteerd om door te voeren.";
-            return;
-        }
-
-        UpdateProfilesWithServerTunnel(CloudflareTunnelId, CloudflareTunnelToken);
-        CloudflareStatusText = $"✅ Tunnel '{CloudflareTunnelName ?? CloudflareTunnelId}' doorgevoerd naar alle {Profiles.Count} profielen op deze server.";
     }
 
     private async Task FetchTunnelTokenForSelectionAsync(string tunnelId)

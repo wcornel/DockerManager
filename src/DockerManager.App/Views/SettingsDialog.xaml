@@ -315,14 +315,6 @@
                                         <TextBox Grid.Column="1" Text="{Binding CloudflareTunnelToken, UpdateSourceTrigger=PropertyChanged}" 
                                                  IsReadOnly="True" Background="#F1F5F9" Foreground="#334155" BorderBrush="#CBD5E1" Padding="6,3" FontSize="11" FontFamily="Consolas"/>
                                     </Grid>
-
-                                    <!-- Knop om direct door te voeren naar alle profielen -->
-                                    <Button Content="{helpers:Loc Settings_ServerCloudflareApplyToProfiles}" 
-                                            Command="{Binding ApplyTunnelToProfilesCommand}"
-                                            Margin="100,8,0,0" Padding="10,6" Background="#EFF6FF" Foreground="#1D4ED8" 
-                                            BorderBrush="#BFDBFE" BorderThickness="1" Cursor="Hand" FontWeight="SemiBold" FontSize="11.5"
-                                            HorizontalAlignment="Left"
-                                            ToolTip="Kopieert de Tunnel ID (GUID) en Token direct naar alle profielen op deze server"/>
                                 </StackPanel>
                             </Border>
 
@@ -431,74 +423,37 @@
                                     </StackPanel>
                                 </Border>
 
-                                <!-- Cloudflare Tunnel & Domain -->
+                                <!-- Cloudflare Tunnel Status (Overgenomen van Server) -->
                                 <Border Background="#FFF7ED" BorderBrush="#FED7AA" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,12">
                                     <StackPanel>
-                                        <DockPanel Margin="0,0,0,8">
-                                            <TextBlock Text="☁️ Cloudflare Tunnel &amp; Domein" FontSize="13" FontWeight="Bold" Foreground="#C2410C" VerticalAlignment="Center"/>
-                                            <TextBlock Text="Optioneel voor publieke URL's via Cloudflare" FontSize="11" Foreground="#9A3412" DockPanel.Dock="Right" VerticalAlignment="Center"/>
+                                        <DockPanel Margin="0,0,0,6">
+                                            <TextBlock Text="☁️ Cloudflare Tunnel" FontSize="13" FontWeight="Bold" Foreground="#C2410C" VerticalAlignment="Center"/>
+                                            <TextBlock Text="Wordt automatisch overgenomen van deze server" FontSize="11" Foreground="#9A3412" DockPanel.Dock="Right" VerticalAlignment="Center"/>
                                         </DockPanel>
 
-                                        <Grid Margin="0,0,0,6">
+                                        <!-- Informative Server Tunnel Summary -->
+                                        <Border Background="#FFFFFF" BorderBrush="#FDBA74" BorderThickness="1" CornerRadius="4" Padding="10,8" Margin="0,0,0,8">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="Gekoppelde Server Tunnel:" FontSize="12" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding ServerTunnelSummary}" FontSize="12" Foreground="#0F172A" FontFamily="Consolas" VerticalAlignment="Center"/>
+                                            </Grid>
+                                        </Border>
+
+                                        <!-- Optioneel afwijkend domein voor dit profiel -->
+                                        <Grid Margin="0,0,0,2">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="130"/>
+                                                <ColumnDefinition Width="140"/>
                                                 <ColumnDefinition Width="*"/>
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="Domein:" FontSize="12" Foreground="#475569" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="0" Text="Domein (optioneel):" FontSize="12" Foreground="#475569" VerticalAlignment="Center"/>
                                             <TextBox Grid.Column="1" Text="{Binding CloudflareDomain, UpdateSourceTrigger=PropertyChanged}" 
                                                      Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,4" FontSize="12"/>
                                         </Grid>
-
-                                        <Grid Margin="0,0,0,6">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="130"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="Account ID:" FontSize="12" Foreground="#475569" VerticalAlignment="Center"/>
-                                            <TextBox Grid.Column="1" Text="{Binding CloudflareAccountId, UpdateSourceTrigger=PropertyChanged}" 
-                                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,4" FontSize="11.5" FontFamily="Consolas"/>
-                                        </Grid>
-
-                                        <Grid Margin="0,0,0,6">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="130"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-                                            <DockPanel Grid.Column="0">
-                                                <TextBlock Text="Tunnel ID:" FontSize="12" Foreground="#475569" VerticalAlignment="Center"/>
-                                                <Button Content="{helpers:Loc Settings_ProfileCopyTunnelFromServer}" Command="{Binding CopyTunnelFromServerCommand}"
-                                                        Margin="4,0,0,0" Padding="3,1" FontSize="9.5" Background="Transparent" Foreground="#2563EB"
-                                                        BorderThickness="0" Cursor="Hand" ToolTip="Neemt de Tunnel ID en Token over van de server"/>
-                                            </DockPanel>
-                                            <TextBox Grid.Column="1" Text="{Binding CloudflareTunnelId, UpdateSourceTrigger=PropertyChanged}" 
-                                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,4" FontSize="11.5" FontFamily="Consolas"/>
-                                        </Grid>
-
-                                        <Grid Margin="0,0,0,6">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="130"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="API Token:" FontSize="12" Foreground="#475569" VerticalAlignment="Center"/>
-                                            <TextBox Grid.Column="1" Text="{Binding CloudflareApiToken, UpdateSourceTrigger=PropertyChanged}" 
-                                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,4" FontSize="11.5" FontFamily="Consolas"/>
-                                        </Grid>
-
-                                        <Grid Margin="0,0,0,8">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="130"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="Tunnel Token:" FontSize="12" Foreground="#475569" VerticalAlignment="Center"/>
-                                            <TextBox Grid.Column="1" Text="{Binding CloudflareTunnelToken, UpdateSourceTrigger=PropertyChanged}" 
-                                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,4" FontSize="11.5" FontFamily="Consolas"/>
-                                        </Grid>
-
-                                        <DockPanel>
-                                            <Button Content="Test Cloudflare" Command="{Binding TestCloudflareCommand}"
-                                                    Padding="12,4" Background="#FFEDD5" Foreground="#C2410C" BorderBrush="#FDBA74" BorderThickness="1" Cursor="Hand" FontWeight="SemiBold" FontSize="11.5" DockPanel.Dock="Left"/>
-                                            <TextBlock Text="{Binding CloudflareTestStatus}" FontSize="11.5" Foreground="#334155" VerticalAlignment="Center" Margin="10,0,0,0" TextWrapping="Wrap"/>
-                                        </DockPanel>
+                                        <TextBlock Text="Laat leeg om het hoofddomein van de server te gebruiken." FontSize="11" Foreground="#64748B" Margin="140,2,0,0"/>
                                     </StackPanel>
                                 </Border>
 
