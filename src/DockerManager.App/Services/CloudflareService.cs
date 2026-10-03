@@ -577,12 +577,23 @@ public class CloudflareService : ICloudflareService
                 var dnsGetJson = await dnsGetResp.Content.ReadAsStringAsync(ct);
 
                 bool recordExists = false;
+                string? existingRecordId = null;
+                string? existingContent = null;
                 if (dnsGetResp.IsSuccessStatusCode)
                 {
                     using var dnsDoc = JsonDocument.Parse(dnsGetJson);
                     if (dnsDoc.RootElement.TryGetProperty("result", out var arr) && arr.GetArrayLength() > 0)
                     {
+                        var firstRecord = arr.EnumerateArray().FirstOrDefault();
                         recordExists = true;
+                        if (firstRecord.TryGetProperty("id", out var idElem))
+                        {
+                            existingRecordId = idElem.GetString();
+                        }
+                        if (firstRecord.TryGetProperty("content", out var contentElem))
+                        {
+                            existingContent = contentElem.GetString();
+                        }
                     }
                 }
 
@@ -607,6 +618,28 @@ public class CloudflareService : ICloudflareService
                         var postErr = await dnsPostResp.Content.ReadAsStringAsync(ct);
                         var err = TryExtractErrorMessage(postErr) ?? dnsPostResp.ReasonPhrase;
                         // Non-critical if user already created CNAME manually or wildcard
+                    }
+                }
+                else if (!string.IsNullOrWhiteSpace(existingRecordId) && !string.Equals(existingContent, targetCname, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Record exists but points to another tunnel: update it seamlessly to the new tunnel!
+                    var putDnsUrl = $"{BaseApiUrl}/zones/{zoneId}/dns_records/{existingRecordId}";
+                    var dnsPayload = new JsonObject
+                    {
+                        ["type"] = "CNAME",
+                        ["name"] = fullHostname,
+                        ["content"] = targetCname,
+                        ["proxied"] = true,
+                        ["comment"] = "Managed by DockerManager"
+                    };
+
+                    using var dnsPutReq = CreateRequest(HttpMethod.Put, putDnsUrl, token);
+                    dnsPutReq.Content = new StringContent(dnsPayload.ToJsonString(), Encoding.UTF8, "application/json");
+                    var dnsPutResp = await _httpClient.SendAsync(dnsPutReq, ct);
+                    if (!dnsPutResp.IsSuccessStatusCode)
+                    {
+                        var putErr = await dnsPutResp.Content.ReadAsStringAsync(ct);
+                        var err = TryExtractErrorMessage(putErr) ?? dnsPutResp.ReasonPhrase;
                     }
                 }
             }
