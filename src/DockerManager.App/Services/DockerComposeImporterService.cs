@@ -87,9 +87,9 @@ public class DockerComposeImporterService : IDockerComposeImporterService
 
                 var serviceDef = new ServiceDefinition
                 {
-                    Id = serviceName.ToLowerInvariant(),
+                    Id = serviceName.ToLowerInvariant().Replace(" ", "-"),
                     DisplayName = FormatDisplayName(serviceName),
-                    ContainerName = serviceName.ToLowerInvariant(),
+                    ContainerName = serviceName.ToLowerInvariant().Replace(" ", "-"),
                     AutoStart = false,
                     RestartPolicy = "unless-stopped"
                 };
@@ -107,7 +107,7 @@ public class DockerComposeImporterService : IDockerComposeImporterService
                 // Container Name
                 if (svcProps.TryGetValue("container_name", out var cNameObj) && cNameObj != null)
                 {
-                    serviceDef.ContainerName = cNameObj.ToString()?.Trim() ?? serviceDef.ContainerName;
+                    serviceDef.ContainerName = cNameObj.ToString()?.Trim().Replace(" ", "-") ?? serviceDef.ContainerName;
                 }
 
                 // Restart policy

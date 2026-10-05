@@ -51,6 +51,7 @@
                             <StackPanel Grid.Column="2">
                                 <TextBlock Text="{helpers:Loc EditService_ContainerName}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
                                 <TextBox Text="{Binding ContainerName, UpdateSourceTrigger=PropertyChanged}" 
+                                         PreviewKeyDown="ContainerNameTextBox_PreviewKeyDown"
                                          Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6"/>
                             </StackPanel>
                         </Grid>

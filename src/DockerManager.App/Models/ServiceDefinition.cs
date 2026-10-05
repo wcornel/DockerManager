@@ -19,4 +19,10 @@ public class ServiceDefinition
     public string? WorkingDir { get; set; }
     public string? CloudflareHostname { get; set; }
     public DateTime? LastUpdatedUtc { get; set; }
+
+    public string GetEffectiveContainerName()
+    {
+        var raw = !string.IsNullOrWhiteSpace(ContainerName) ? ContainerName : Id;
+        return string.IsNullOrWhiteSpace(raw) ? "container" : raw.Trim().Replace(" ", "-");
+    }
 }

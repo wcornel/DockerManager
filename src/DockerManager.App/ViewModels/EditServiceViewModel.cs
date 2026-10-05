@@ -219,6 +219,22 @@ public partial class EditServiceViewModel : ObservableObject
         OnPropertyChanged(nameof(FullCloudflareUrl));
     }
 
+    partial void OnContainerNameChanged(string value)
+    {
+        if (value != null && value.Contains(' '))
+        {
+            ContainerName = value.Replace(" ", "-");
+        }
+    }
+
+    partial void OnIdChanged(string value)
+    {
+        if (value != null && value.Contains(' '))
+        {
+            Id = value.Replace(" ", "-");
+        }
+    }
+
     public ObservableCollection<EditablePortItem> Ports { get; } = new();
     public ObservableCollection<EditableVolumeItem> Volumes { get; } = new();
     public ObservableCollection<KeyValueItem> EnvironmentVariables { get; } = new();
@@ -394,14 +410,17 @@ public partial class EditServiceViewModel : ObservableObject
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(ContainerName))
-        {
-            ContainerName = DisplayName.ToLowerInvariant().Replace(" ", "-");
-        }
+        ContainerName = (string.IsNullOrWhiteSpace(ContainerName)
+            ? DisplayName.ToLowerInvariant()
+            : ContainerName).Trim().Replace(" ", "-");
 
         if (string.IsNullOrWhiteSpace(Id))
         {
             Id = ContainerName;
+        }
+        else
+        {
+            Id = Id.Trim().Replace(" ", "-");
         }
 
         // Register with Cloudflare if tunnel is enabled
@@ -593,12 +612,19 @@ public partial class EditServiceViewModel : ObservableObject
 
     public ServiceDefinition ToServiceDefinition()
     {
+        var sanitizedContainerName = (string.IsNullOrWhiteSpace(ContainerName)
+            ? DisplayName.ToLowerInvariant()
+            : ContainerName).Trim().Replace(" ", "-");
+        var sanitizedId = (string.IsNullOrWhiteSpace(Id)
+            ? sanitizedContainerName
+            : Id).Trim().Replace(" ", "-");
+
         var service = new ServiceDefinition
         {
-            Id = Id,
-            DisplayName = DisplayName,
-            ContainerName = ContainerName,
-            Image = Image,
+            Id = sanitizedId,
+            DisplayName = DisplayName.Trim(),
+            ContainerName = sanitizedContainerName,
+            Image = Image.Trim(),
             Description = Description,
             RestartPolicy = RestartPolicy,
             WorkingDir = string.IsNullOrWhiteSpace(WorkingDir) ? null : WorkingDir.Trim(),

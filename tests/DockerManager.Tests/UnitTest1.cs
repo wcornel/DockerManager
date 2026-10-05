@@ -1456,6 +1456,45 @@ services:
             catch { }
         }
     }
+
+    [Fact]
+    public void TestContainerName_SanitizesSpacesToHyphens()
+    {
+        // 1. ServiceDefinition GetEffectiveContainerName
+        var svcWithSpaces = new ServiceDefinition { Id = "my service", ContainerName = "my test container " };
+        Assert.Equal("my-test-container", svcWithSpaces.GetEffectiveContainerName());
+
+        var svcFallback = new ServiceDefinition { Id = "fallback service", ContainerName = "" };
+        Assert.Equal("fallback-service", svcFallback.GetEffectiveContainerName());
+
+        var svcEmpty = new ServiceDefinition { Id = "", ContainerName = "" };
+        Assert.Equal("container", svcEmpty.GetEffectiveContainerName());
+
+        // 2. EditServiceViewModel live typing & conversion
+        var editVm = new EditServiceViewModel();
+        editVm.DisplayName = "Mijn Nieuwe Website";
+        editVm.ContainerName = "mijn nieuwe container";
+        Assert.Equal("mijn-nieuwe-container", editVm.ContainerName);
+
+        var savedSvc = editVm.ToServiceDefinition();
+        Assert.Equal("mijn-nieuwe-container", savedSvc.ContainerName);
+        Assert.Equal("mijn-nieuwe-container", savedSvc.GetEffectiveContainerName());
+
+        // 3. ServiceCardViewModel exposes sanitized name
+        var cred = new CredentialService();
+        var sett = new SettingsService(cred);
+        var cardVm = new ServiceCardViewModel(svcWithSpaces, "test-profile", null!, sett);
+        Assert.Equal("my-test-container", cardVm.ContainerName);
+
+        // 4. DockerComposeImporterService sanitizes container names with spaces
+        var importer = new DockerComposeImporterService();
+        var yaml = "services:\n  web app:\n    image: nginx:alpine\n    container_name: custom web app";
+        var parsed = importer.ParseComposeYaml(yaml);
+        Assert.True(parsed.Success);
+        Assert.Single(parsed.ParsedServices);
+        Assert.Equal("custom-web-app", parsed.ParsedServices[0].ContainerName);
+        Assert.Equal("custom-web-app", parsed.ParsedServices[0].GetEffectiveContainerName());
+    }
 }
 
 

@@ -160,7 +160,7 @@ public class DockerService : IDockerService
     public async Task StartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, CancellationToken ct = default)
     {
         var client = GetClient();
-        var containerName = string.IsNullOrWhiteSpace(service.ContainerName) ? service.Id : service.ContainerName;
+        var containerName = service.GetEffectiveContainerName();
 
         ContainerInspectResponse? inspect = null;
         try
@@ -214,7 +214,7 @@ public class DockerService : IDockerService
     public async Task RestartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, CancellationToken ct = default)
     {
         var client = GetClient();
-        var containerName = string.IsNullOrWhiteSpace(service.ContainerName) ? service.Id : service.ContainerName;
+        var containerName = service.GetEffectiveContainerName();
         progress?.Report($"Container '{containerName}' herstarten met actuele configuratie...");
 
         try
@@ -237,7 +237,7 @@ public class DockerService : IDockerService
     public async Task<ContainerUpdateResult> SafeUpdateContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, CancellationToken ct = default)
     {
         var client = GetClient();
-        var containerName = string.IsNullOrWhiteSpace(service.ContainerName) ? service.Id : service.ContainerName;
+        var containerName = service.GetEffectiveContainerName();
 
         string? oldImageId = null;
         bool isCurrentlyRunning = false;
@@ -452,7 +452,7 @@ public class DockerService : IDockerService
 
     private async Task<string> CreateContainerInternalAsync(DockerClient client, ServiceDefinition service, string profileName, CancellationToken ct)
     {
-        var containerName = string.IsNullOrWhiteSpace(service.ContainerName) ? service.Id : service.ContainerName;
+        var containerName = service.GetEffectiveContainerName();
 
         // Port bindings
         var portBindings = new Dictionary<string, IList<PortBinding>>();
@@ -843,7 +843,7 @@ public class DockerService : IDockerService
             var cleanName = image.Trim();
             if (cleanName.Contains('/')) cleanName = cleanName[(cleanName.LastIndexOf('/') + 1)..];
             if (cleanName.Contains(':')) cleanName = cleanName[..cleanName.IndexOf(':')];
-            result.SuggestedContainerName = cleanName.ToLowerInvariant();
+            result.SuggestedContainerName = cleanName.ToLowerInvariant().Replace(" ", "-");
             result.SuggestedDisplayName = char.ToUpperInvariant(cleanName[0]) + cleanName[1..];
 
             result.Success = true;

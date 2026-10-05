@@ -78,7 +78,7 @@ public partial class ServiceCardViewModel : ObservableObject
 
     public List<string> ActivityLogs { get; } = new();
 
-    public string ContainerName => string.IsNullOrWhiteSpace(Service.ContainerName) ? Service.Id : Service.ContainerName;
+    public string ContainerName => Service.GetEffectiveContainerName();
     public string PortsSummary => Service.Ports.Count > 0 
         ? string.Join(", ", Service.Ports.Select(p => $"{p.HostPort}→{p.ContainerPort}"))
         : LocalizationService.Instance.Get("Card_NoPorts");
