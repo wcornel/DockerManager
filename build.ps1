@@ -147,8 +147,23 @@ if ($Release) {
                 $GitHubToken = $env:GITHUB_TOKEN
             } else {
                 try {
-                    $p = "protocol=https`nhost=github.com`n`n"
-                    $credLines = $p | git credential fill 2>$null
+                    $gcmCandidates = @(
+                        "C:\Program Files\Git\mingw64\bin\git-credential-manager.exe",
+                        "git-credential-manager"
+                    )
+                    $credLines = @()
+                    foreach ($gcm in $gcmCandidates) {
+                        try {
+                            $res = @("protocol=https", "host=github.com", "") | & $gcm get 2>$null
+                            if ($res) {
+                                $credLines = $res
+                                break
+                            }
+                        } catch { }
+                    }
+                    if (-not $credLines -or $credLines.Count -eq 0) {
+                        $credLines = @("protocol=https", "host=github.com", "") | git credential fill 2>$null
+                    }
                     foreach ($line in $credLines) {
                         if ($line -like "password=*") {
                             $GitHubToken = $line.Substring(9).Trim()
