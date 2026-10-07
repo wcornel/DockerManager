@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DockerManager.App.Models;
+using DockerManager.App.Services;
 
 namespace DockerManager.App.ViewModels;
 
@@ -210,7 +211,10 @@ public partial class EditServiceViewModel : ObservableObject
 
     private string? _registeredCloudflareHost;
     private readonly string? _originalCloudflareHostname;
+    private readonly Dictionary<string, string> _initialEnvironment = new();
 
+    public bool IsContainerRunning { get; set; }
+    public bool RestartRequested { get; private set; }
     public Func<string, string, bool>? ConfirmPrompt { get; set; }
 
     partial void OnCloudflareSubdomainChanged(string value)
@@ -343,6 +347,7 @@ public partial class EditServiceViewModel : ObservableObject
             foreach (var kvp in existingService.Environment)
             {
                 EnvironmentVariables.Add(new KeyValueItem(kvp.Key, kvp.Value));
+                _initialEnvironment[kvp.Key] = kvp.Value;
             }
         }
         else
@@ -490,8 +495,43 @@ public partial class EditServiceViewModel : ObservableObject
             _registeredCloudflareHost = null;
         }
 
+        if (IsContainerRunning && !IsNew && HasEnvironmentChanges())
+        {
+            var loc = LocalizationService.Instance;
+            var promptTitle = loc.Get("EditService_EnvRestartPromptTitle");
+            var promptMessage = loc.Get("EditService_EnvRestartPromptMessage", DisplayName);
+            if (AskConfirmation(promptMessage, promptTitle))
+            {
+                RestartRequested = true;
+            }
+        }
+
         IsSaved = true;
         RequestClose?.Invoke();
+    }
+
+    public bool HasEnvironmentChanges()
+    {
+        var current = new Dictionary<string, string>();
+        foreach (var item in EnvironmentVariables)
+        {
+            if (!string.IsNullOrWhiteSpace(item.Key))
+            {
+                current[item.Key.Trim()] = item.Value ?? string.Empty;
+            }
+        }
+
+        if (current.Count != _initialEnvironment.Count) return true;
+
+        foreach (var (k, v) in _initialEnvironment)
+        {
+            if (!current.TryGetValue(k, out var curVal) || curVal != (v ?? string.Empty))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     [RelayCommand]

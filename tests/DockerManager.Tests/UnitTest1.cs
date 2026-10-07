@@ -1495,6 +1495,82 @@ services:
         Assert.Equal("custom-web-app", parsed.ParsedServices[0].ContainerName);
         Assert.Equal("custom-web-app", parsed.ParsedServices[0].GetEffectiveContainerName());
     }
+
+    [Fact]
+    public async Task TestEditServiceViewModel_EnvironmentChangeDetectionAndRestartPrompt()
+    {
+        var existing = new ServiceDefinition
+        {
+            Id = "test-app",
+            DisplayName = "Test App",
+            ContainerName = "test-app",
+            Image = "nginx:alpine",
+            Environment = new Dictionary<string, string>
+            {
+                ["ENV_A"] = "alpha",
+                ["ENV_B"] = "beta"
+            }
+        };
+
+        // 1. Initial state -> No changes
+        var vm = new EditServiceViewModel(existing);
+        Assert.False(vm.HasEnvironmentChanges());
+
+        // 2. Modify an existing variable value
+        vm.EnvironmentVariables[0].Value = "alpha-updated";
+        Assert.True(vm.HasEnvironmentChanges());
+
+        // 3. Reset value back -> No changes
+        vm.EnvironmentVariables[0].Value = "alpha";
+        Assert.False(vm.HasEnvironmentChanges());
+
+        // 4. Add a new variable
+        vm.EnvironmentVariables.Add(new KeyValueItem("ENV_C", "gamma"));
+        Assert.True(vm.HasEnvironmentChanges());
+
+        // 5. If container is running, SaveAsync triggers restart prompt
+        vm.IsContainerRunning = true;
+        bool promptTriggered = false;
+        vm.ConfirmPrompt = (msg, title) =>
+        {
+            promptTriggered = true;
+            return true; // User clicks Yes
+        };
+
+        await vm.SaveCommand.ExecuteAsync(null);
+
+        Assert.True(promptTriggered);
+        Assert.True(vm.RestartRequested);
+        Assert.True(vm.IsSaved);
+
+        // 6. If user clicks No on prompt
+        var vm2 = new EditServiceViewModel(existing);
+        vm2.EnvironmentVariables.Add(new KeyValueItem("ENV_C", "gamma"));
+        vm2.IsContainerRunning = true;
+        vm2.ConfirmPrompt = (msg, title) => false; // User clicks No
+
+        await vm2.SaveCommand.ExecuteAsync(null);
+
+        Assert.False(vm2.RestartRequested);
+        Assert.True(vm2.IsSaved);
+
+        // 7. If container is not running, no prompt is shown
+        var vm3 = new EditServiceViewModel(existing);
+        vm3.EnvironmentVariables.Add(new KeyValueItem("ENV_C", "gamma"));
+        vm3.IsContainerRunning = false;
+        bool promptShownOnStopped = false;
+        vm3.ConfirmPrompt = (msg, title) =>
+        {
+            promptShownOnStopped = true;
+            return true;
+        };
+
+        await vm3.SaveCommand.ExecuteAsync(null);
+
+        Assert.False(promptShownOnStopped);
+        Assert.False(vm3.RestartRequested);
+        Assert.True(vm3.IsSaved);
+    }
 }
 
 

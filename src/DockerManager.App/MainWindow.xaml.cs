@@ -334,7 +334,11 @@ public partial class MainWindow : Window
     {
         try
         {
-            var editVm = new EditServiceViewModel(cardVm.Service, _dockerService, _cloudflareService, _settingsService, _viewModel.SelectedProfile);
+            var isRunning = cardVm.IsRunning;
+            var editVm = new EditServiceViewModel(cardVm.Service, _dockerService, _cloudflareService, _settingsService, _viewModel.SelectedProfile)
+            {
+                IsContainerRunning = isRunning
+            };
             var dialog = new EditServiceDialog(editVm)
             {
                 Owner = this
@@ -358,11 +362,24 @@ public partial class MainWindow : Window
                     {
                         _viewModel.SelectedProfile.Services[idx] = updated;
                     }
-                    _viewModel.RebuildServiceCards();
                     _ = _viewModel.SaveCurrentProfileAsync();
                 }
 
                 _ = cardVm.RefreshStatusAsync();
+
+                if (isRunning && editVm.HasEnvironmentChanges())
+                {
+                    if (editVm.RestartRequested)
+                    {
+                        _ = cardVm.RestartCommand.ExecuteAsync(null);
+                    }
+                    else
+                    {
+                        var notice = LocalizationService.Instance.Get("EditService_EnvRestartCardNotice");
+                        cardVm.StatusMessage = notice;
+                        _viewModel.StatusNotification = $"⚠️ {updated.DisplayName}: {notice}";
+                    }
+                }
             }
         }
         catch (Exception ex)

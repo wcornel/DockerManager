@@ -221,6 +221,7 @@ public partial class ServiceCardViewModel : ObservableObject
     public void UpdateService(ServiceDefinition updated)
     {
         Service = updated;
+        OnPropertyChanged(nameof(Service));
         OnPropertyChanged(nameof(ContainerName));
         OnPropertyChanged(nameof(PortsSummary));
         OnPropertyChanged(nameof(VolumesSummary));
