@@ -707,6 +707,10 @@ services:
         sett.Settings.CloudflareDomain = "example.com";
         sett.Settings.CloudflareAccountId = "acc123";
         sett.Settings.CloudflareTunnelId = "tun123";
+        var activeServer = sett.Settings.GetActiveServer();
+        activeServer.CloudflareDomain = "example.com";
+        activeServer.CloudflareAccountId = "acc123";
+        activeServer.CloudflareTunnelId = "tun123";
 
         var mockHandler = new MockCloudflareHttpHandler();
         var httpClient = new System.Net.Http.HttpClient(mockHandler);
@@ -733,6 +737,10 @@ services:
         sett.Settings.CloudflareDomain = "example.com";
         sett.Settings.CloudflareAccountId = "acc123";
         sett.Settings.CloudflareTunnelId = "tun123";
+        var activeServer2 = sett.Settings.GetActiveServer();
+        activeServer2.CloudflareDomain = "example.com";
+        activeServer2.CloudflareAccountId = "acc123";
+        activeServer2.CloudflareTunnelId = "tun123";
 
         var mockHandler = new MockCloudflareHttpHandler();
         var httpClient = new System.Net.Http.HttpClient(mockHandler);
