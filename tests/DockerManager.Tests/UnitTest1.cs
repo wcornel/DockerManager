@@ -1571,7 +1571,106 @@ services:
         Assert.False(vm3.RestartRequested);
         Assert.True(vm3.IsSaved);
     }
+
+    [Fact]
+    public void ServerSettingsTabViewModel_HostType_Resilience()
+    {
+        var server = new DockerServerEnvironment
+        {
+            Id = "vps",
+            Name = "Externe VPS",
+            HostType = "Tcp",
+            TcpUrl = "tcp://192.168.1.50:2375",
+            ProfilesSubfolder = "vps"
+        };
+
+        var cred = new CredentialService();
+        var sett = new SettingsService(cred);
+        var dock = new DockerService(sett, cred);
+        var cf = new CloudflareService(sett, cred);
+
+        var tab = new ServerSettingsTabViewModel(server, new List<ProfileModel>(), sett, cred, cf, dock, () => new List<ProfileModel>());
+
+        // Initial state from server
+        Assert.Equal("Tcp", tab.HostType);
+        Assert.True(tab.IsTcpSelected);
+        Assert.False(tab.IsPipeSelected);
+
+        // WPF uncheck event sends false - should be ignored!
+        tab.IsTcpSelected = false;
+        Assert.Equal("Tcp", tab.HostType);
+        Assert.True(tab.IsTcpSelected);
+
+        tab.IsPipeSelected = false;
+        Assert.Equal("Tcp", tab.HostType);
+
+        // Explicitly switch to Pipe
+        tab.SelectPipeCommand.Execute(null);
+        Assert.Equal("Pipe", tab.HostType);
+        Assert.True(tab.IsPipeSelected);
+        Assert.False(tab.IsTcpSelected);
+
+        // Switch back to Tcp
+        tab.SelectTcpCommand.Execute(null);
+        Assert.Equal("Tcp", tab.HostType);
+        Assert.True(tab.IsTcpSelected);
+        Assert.False(tab.IsPipeSelected);
+
+        // ApplyToServer maintains HostType
+        tab.ApplyToServer();
+        Assert.Equal("Tcp", server.HostType);
+    }
+
+    [Fact]
+    public async Task SettingsViewModel_SaveAsync_PreservesActiveServer()
+    {
+        var cred = new CredentialService();
+        var sett = new SettingsService(cred);
+        var prof = new GitHubProfileService(sett, cred);
+        var dock = new DockerService(sett, cred);
+        var cf = new CloudflareService(sett, cred);
+
+        sett.Settings.Servers = new List<DockerServerEnvironment>
+        {
+            new DockerServerEnvironment { Id = "local", Name = "Lokale PC", HostType = "Pipe", PipeName = "npipe://./pipe/docker_engine", ProfilesSubfolder = "local" },
+            new DockerServerEnvironment { Id = "vps", Name = "Externe VPS", HostType = "Tcp", TcpUrl = "tcp://192.168.1.50:2375", ProfilesSubfolder = "vps" }
+        };
+        sett.Settings.ActiveServerId = "vps";
+        sett.Settings.DockerHostType = "Tcp";
+        sett.Settings.DockerTcpUrl = "tcp://192.168.1.50:2375";
+
+        var vm = new SettingsViewModel(sett, cred, prof, dock, cf);
+
+        // Assert tabs are initialized and vps is marked active
+        var serverTabs = vm.Tabs.OfType<ServerSettingsTabViewModel>().ToList();
+        var localTab = serverTabs.First(s => s.Server.Id == "local");
+        var vpsTab = serverTabs.First(s => s.Server.Id == "vps");
+
+        Assert.False(localTab.IsActiveServer);
+        Assert.True(vpsTab.IsActiveServer);
+
+        // Simulate user viewing the "local" tab in the dialog
+        vm.SelectedTab = localTab;
+
+        // Save
+        await vm.SaveAsync();
+
+        // Active server MUST still be vps, and DockerHostType must remain Tcp!
+        Assert.Equal("vps", sett.Settings.ActiveServerId);
+        Assert.Equal("Tcp", sett.Settings.DockerHostType);
+        Assert.Equal("tcp://192.168.1.50:2375", sett.Settings.DockerTcpUrl);
+
+        // User explicitly marks local as active
+        localTab.MakeActiveServerCommand.Execute(null);
+        Assert.True(localTab.IsActiveServer);
+        Assert.False(vpsTab.IsActiveServer);
+
+        await vm.SaveAsync();
+        Assert.Equal("local", sett.Settings.ActiveServerId);
+        Assert.Equal("Pipe", sett.Settings.DockerHostType);
+    }
 }
+
 
 
 

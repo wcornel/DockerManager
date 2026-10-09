@@ -132,6 +132,8 @@ public partial class SettingsViewModel : ObservableObject
                 _dockerService,
                 () => GetAllProfilesAcrossTabs());
 
+            sTab.IsActiveServer = server.Id.Equals(_settingsService.Settings.ActiveServerId, StringComparison.OrdinalIgnoreCase);
+            sTab.RequestMakeActiveServer += OnRequestMakeActiveServer;
             sTab.RequestDeleteServer += OnRequestDeleteServer;
             Tabs.Add(sTab);
         }
@@ -198,9 +200,20 @@ public partial class SettingsViewModel : ObservableObject
             _dockerService,
             () => GetAllProfilesAcrossTabs());
 
+        serverTab.IsActiveServer = false;
+        serverTab.RequestMakeActiveServer += OnRequestMakeActiveServer;
         serverTab.RequestDeleteServer += OnRequestDeleteServer;
         Tabs.Add(serverTab);
         SelectedTab = serverTab;
+    }
+
+    private void OnRequestMakeActiveServer(ServerSettingsTabViewModel serverTab)
+    {
+        foreach (var tab in Tabs.OfType<ServerSettingsTabViewModel>())
+        {
+            tab.IsActiveServer = (tab == serverTab);
+        }
+        _settingsService.Settings.ActiveServerId = serverTab.Server.Id;
     }
 
     private void OnRequestDeleteServer(ServerSettingsTabViewModel serverTab)
@@ -222,6 +235,15 @@ public partial class SettingsViewModel : ObservableObject
         {
             Tabs.Remove(serverTab);
             Servers.Remove(serverTab.Server);
+            if (serverTab.IsActiveServer)
+            {
+                var fallback = Tabs.OfType<ServerSettingsTabViewModel>().FirstOrDefault();
+                if (fallback != null)
+                {
+                    fallback.IsActiveServer = true;
+                    _settingsService.Settings.ActiveServerId = fallback.Server.Id;
+                }
+            }
             SelectedTab = Tabs.OfType<ServerSettingsTabViewModel>().FirstOrDefault() ?? (SettingsTabViewModel)GeneralTab;
         }
     }
@@ -258,9 +280,10 @@ public partial class SettingsViewModel : ObservableObject
 
         _settingsService.Settings.Servers = serverList;
 
-        if (SelectedTab is ServerSettingsTabViewModel currentTab)
+        var activeTab = Tabs.OfType<ServerSettingsTabViewModel>().FirstOrDefault(s => s.IsActiveServer);
+        if (activeTab != null)
         {
-            _settingsService.Settings.ActiveServerId = currentTab.Server.Id;
+            _settingsService.Settings.ActiveServerId = activeTab.Server.Id;
         }
         else if (!serverList.Any(s => s.Id.Equals(_settingsService.Settings.ActiveServerId, StringComparison.OrdinalIgnoreCase)))
         {

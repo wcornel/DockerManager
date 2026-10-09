@@ -589,25 +589,47 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
     }
 
     [ObservableProperty]
-    private bool _isPipeSelected = true;
+    private string _hostType = "Pipe";
 
-    partial void OnIsPipeSelectedChanged(bool value)
+    partial void OnHostTypeChanged(string value)
     {
-        if (value && IsTcpSelected)
+        OnPropertyChanged(nameof(IsPipeSelected));
+        OnPropertyChanged(nameof(IsTcpSelected));
+    }
+
+    public bool IsPipeSelected
+    {
+        get => HostType.Equals("Pipe", StringComparison.OrdinalIgnoreCase);
+        set
         {
-            IsTcpSelected = false;
+            if (value)
+            {
+                HostType = "Pipe";
+            }
+        }
+    }
+
+    public bool IsTcpSelected
+    {
+        get => HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase);
+        set
+        {
+            if (value)
+            {
+                HostType = "Tcp";
+            }
         }
     }
 
     [ObservableProperty]
-    private bool _isTcpSelected;
+    private bool _isActiveServer;
 
-    partial void OnIsTcpSelectedChanged(bool value)
+    public event Action<ServerSettingsTabViewModel>? RequestMakeActiveServer;
+
+    [RelayCommand]
+    private void MakeActiveServer()
     {
-        if (value && IsPipeSelected)
-        {
-            IsPipeSelected = false;
-        }
+        RequestMakeActiveServer?.Invoke(this);
     }
 
     [ObservableProperty]
@@ -728,16 +750,7 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
         ProfilesSubfolder = server.ProfilesSubfolder;
         VolumesRootPath = server.VolumesRootPath;
 
-        if (server.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase))
-        {
-            IsTcpSelected = true;
-            IsPipeSelected = false;
-        }
-        else
-        {
-            IsPipeSelected = true;
-            IsTcpSelected = false;
-        }
+        HostType = server.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase) ? "Tcp" : "Pipe";
 
         PipeName = string.IsNullOrWhiteSpace(server.PipeName) ? "npipe://./pipe/docker_engine" : server.PipeName;
         TcpUrl = string.IsNullOrWhiteSpace(server.TcpUrl) ? "tcp://192.168.1.50:2375" : server.TcpUrl;
@@ -791,15 +804,13 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
     [RelayCommand]
     private void SelectPipe()
     {
-        IsPipeSelected = true;
-        IsTcpSelected = false;
+        HostType = "Pipe";
     }
 
     [RelayCommand]
     private void SelectTcp()
     {
-        IsTcpSelected = true;
-        IsPipeSelected = false;
+        HostType = "Tcp";
     }
 
     [RelayCommand]
@@ -1055,7 +1066,7 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
     public void ApplyToServer()
     {
         Server.Name = string.IsNullOrWhiteSpace(Name) ? "Docker Server" : Name.Trim();
-        Server.HostType = IsTcpSelected ? "Tcp" : "Pipe";
+        Server.HostType = HostType;
         Server.PipeName = PipeName.Trim();
         Server.TcpUrl = TcpUrl.Trim();
         Server.ProfilesSubfolder = string.IsNullOrWhiteSpace(ProfilesSubfolder) ? "local" : ProfilesSubfolder.Trim();

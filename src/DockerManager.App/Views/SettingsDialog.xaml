@@ -143,8 +143,17 @@
                                     <TextBlock Text="🖥️ " FontSize="16"/>
                                     <TextBlock Text="Docker Server Verbinding" FontSize="15" FontWeight="SemiBold" Foreground="#0284C7"/>
                                 </StackPanel>
-                                <Button Content="🗑️ Server Verwijderen" Command="{Binding DeleteServerCommand}" 
-                                        Padding="10,4" Background="#FEF2F2" Foreground="#DC2626" BorderBrush="#FECACA" BorderThickness="1" Cursor="Hand" HorizontalAlignment="Right"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <Border Background="#ECFDF5" BorderBrush="#A7F3D0" BorderThickness="1" CornerRadius="6" Padding="8,4" Margin="0,0,8,0"
+                                            Visibility="{Binding IsActiveServer, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                        <TextBlock Text="{helpers:Loc Settings_ServerActiveBadge}" FontSize="11.5" FontWeight="SemiBold" Foreground="#047857"/>
+                                    </Border>
+                                    <Button Content="{helpers:Loc Settings_ServerMakeActive}" Command="{Binding MakeActiveServerCommand}"
+                                            Visibility="{Binding IsActiveServer, Converter={StaticResource InverseBooleanToVisibilityConverter}}"
+                                            Padding="8,4" Margin="0,0,8,0" Background="#F1F5F9" Foreground="#334155" BorderBrush="#CBD5E1" BorderThickness="1" Cursor="Hand" FontSize="11.5"/>
+                                    <Button Content="🗑️ Server Verwijderen" Command="{Binding DeleteServerCommand}" 
+                                            Padding="10,4" Background="#FEF2F2" Foreground="#DC2626" BorderBrush="#FECACA" BorderThickness="1" Cursor="Hand"/>
+                                </StackPanel>
                             </DockPanel>
 
                             <Grid Margin="0,0,0,10">
@@ -172,11 +181,9 @@
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                                 <RadioButton Content="{helpers:Loc Settings_HostLocal}" 
                                              IsChecked="{Binding IsPipeSelected, Mode=TwoWay}" 
-                                             GroupName="{Binding Server.Id}"
                                              Command="{Binding SelectPipeCommand}" Foreground="#0F172A" Margin="0,0,24,0" FontWeight="Medium"/>
                                 <RadioButton Content="{helpers:Loc Settings_HostTcp}" 
                                              IsChecked="{Binding IsTcpSelected, Mode=TwoWay}" 
-                                             GroupName="{Binding Server.Id}"
                                              Command="{Binding SelectTcpCommand}" Foreground="#0F172A" FontWeight="Medium"/>
                             </StackPanel>
 
