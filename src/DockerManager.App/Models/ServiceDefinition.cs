@@ -19,6 +19,7 @@ public class ServiceDefinition
     public string? WorkingDir { get; set; }
     public string? CloudflareHostname { get; set; }
     public DateTime? LastUpdatedUtc { get; set; }
+    public List<string> DependsOn { get; set; } = new();
 
     public string GetEffectiveContainerName()
     {

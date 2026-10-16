@@ -35,7 +35,7 @@ public partial class MainWindow : Window
         _gitHubProfileService = new GitHubProfileService(_settingsService, _credentialService);
         _dockerService = new DockerService(_settingsService, _credentialService);
         _gitHubAuthService = new GitHubAuthService();
-        _backupService = new BackupService(_settingsService);
+        _backupService = new BackupService(_settingsService, _dockerService);
         _dotnetScannerService = new DotnetAppScannerService();
         _pythonScannerService = new PythonAppScannerService();
         _dotnetPublisherService = new DotnetPublisherService(_settingsService, _credentialService);

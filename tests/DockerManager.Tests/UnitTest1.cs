@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using DockerManager.App;
@@ -1676,6 +1679,184 @@ services:
         await vm.SaveAsync();
         Assert.Equal("local", sett.Settings.ActiveServerId);
         Assert.Equal("Pipe", sett.Settings.DockerHostType);
+    }
+
+    [Fact]
+    public void TestDotnetPublisherService_IsPublishableAppFile()
+    {
+        // Ignored directories / files
+        Assert.False(DotnetPublisherService.IsPublishableAppFile(@"bin\Release\net10.0\app.dll"));
+        Assert.False(DotnetPublisherService.IsPublishableAppFile(@"bin/Debug/app.exe"));
+        Assert.False(DotnetPublisherService.IsPublishableAppFile(@"obj\Debug\net10.0\app.AssemblyInfo.cs"));
+        Assert.False(DotnetPublisherService.IsPublishableAppFile(@"src/MyProject/obj/project.assets.json"));
+        Assert.False(DotnetPublisherService.IsPublishableAppFile(@".vs/MyProject/v17/.suo"));
+        Assert.False(DotnetPublisherService.IsPublishableAppFile(@".vscode/launch.json"));
+        Assert.False(DotnetPublisherService.IsPublishableAppFile(@".idea/workspace.xml"));
+        Assert.False(DotnetPublisherService.IsPublishableAppFile(@".git/config"));
+        Assert.False(DotnetPublisherService.IsPublishableAppFile(@".venv/bin/activate"));
+        Assert.False(DotnetPublisherService.IsPublishableAppFile(@"venv/Lib/site-packages/pip"));
+        Assert.False(DotnetPublisherService.IsPublishableAppFile(@"env/bin/python"));
+        Assert.False(DotnetPublisherService.IsPublishableAppFile(@"__pycache__/module.cpython-310.pyc"));
+        Assert.False(DotnetPublisherService.IsPublishableAppFile(@"app.user"));
+        Assert.False(DotnetPublisherService.IsPublishableAppFile(@"app.suo"));
+
+        // Valid app files
+        Assert.True(DotnetPublisherService.IsPublishableAppFile(@"appsettings.json"));
+        Assert.True(DotnetPublisherService.IsPublishableAppFile(@"appsettings.Production.json"));
+        Assert.True(DotnetPublisherService.IsPublishableAppFile(@"Program.cs"));
+        Assert.True(DotnetPublisherService.IsPublishableAppFile(@"Controllers/HomeController.cs"));
+        Assert.True(DotnetPublisherService.IsPublishableAppFile(@"Dockerfile"));
+        Assert.True(DotnetPublisherService.IsPublishableAppFile(@"main.py"));
+        Assert.True(DotnetPublisherService.IsPublishableAppFile(@"requirements.txt"));
+    }
+
+    [Fact]
+    public void TestDockerCompose_DependsOn_ImportAndExport()
+    {
+        var importer = new DockerComposeImporterService();
+        var exporter = new DockerComposeExporterService();
+
+        // 1. Test depends_on as list
+        var yamlList = @"
+services:
+  web:
+    image: nginx:alpine
+    depends_on:
+      - db
+      - redis
+  db:
+    image: postgres:15
+  redis:
+    image: redis:alpine
+";
+        var resList = importer.ParseComposeYaml(yamlList);
+        Assert.True(resList.Success);
+        var webDef = resList.ParsedServices.FirstOrDefault(s => s.Id == "web");
+        Assert.NotNull(webDef);
+        Assert.Equal(2, webDef.DependsOn.Count);
+        Assert.Contains("db", webDef.DependsOn);
+        Assert.Contains("redis", webDef.DependsOn);
+
+        // 2. Test depends_on as map / dictionary (Docker Compose v2 extended format)
+        var yamlMap = @"
+services:
+  web:
+    image: nginx:alpine
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+";
+        var resMap = importer.ParseComposeYaml(yamlMap);
+        Assert.True(resMap.Success);
+        var webDefMap = resMap.ParsedServices.FirstOrDefault(s => s.Id == "web");
+        Assert.NotNull(webDefMap);
+        Assert.Equal(2, webDefMap.DependsOn.Count);
+        Assert.Contains("db", webDefMap.DependsOn);
+        Assert.Contains("redis", webDefMap.DependsOn);
+
+        // 3. Test DockerComposeExporter roundtrip of depends_on
+        var profile = new ProfileModel
+        {
+            Name = "ExportTest",
+            Services = new List<ServiceDefinition>
+            {
+                new ServiceDefinition
+                {
+                    Id = "web",
+                    DisplayName = "Web App",
+                    Image = "webapp:latest",
+                    DependsOn = new List<string> { "db", "redis" }
+                },
+                new ServiceDefinition
+                {
+                    Id = "db",
+                    DisplayName = "Database",
+                    Image = "postgres:15"
+                }
+            }
+        };
+
+        var exportedYaml = exporter.ExportToComposeYaml(profile);
+        Assert.Contains("depends_on:", exportedYaml);
+        Assert.Contains("- db", exportedYaml);
+        Assert.Contains("- redis", exportedYaml);
+    }
+
+    [Fact]
+    public void TestMainViewModel_SortCardsByDependencies()
+    {
+        var cred = new CredentialService();
+        var sett = new SettingsService(cred);
+        var dock = new DockerService(sett, cred);
+
+        var webSvc = new ServiceDefinition { Id = "web", DisplayName = "Frontend", Image = "frontend:latest", DependsOn = new List<string> { "api" } };
+        var apiSvc = new ServiceDefinition { Id = "api", DisplayName = "Backend API", Image = "backend:latest", DependsOn = new List<string> { "db" } };
+        var dbSvc = new ServiceDefinition { Id = "db", DisplayName = "PostgreSQL", Image = "postgres:15" };
+        var tunnelSvc = new ServiceDefinition { Id = "cloudflared", DisplayName = "Cloudflare Tunnel", Image = "cloudflare/cloudflared:latest" };
+
+        var webCard = new ServiceCardViewModel(webSvc, "P", dock, sett);
+        var apiCard = new ServiceCardViewModel(apiSvc, "P", dock, sett);
+        var dbCard = new ServiceCardViewModel(dbSvc, "P", dock, sett);
+        var tunnelCard = new ServiceCardViewModel(tunnelSvc, "P", dock, sett);
+
+        // Unordered list
+        var inputList = new List<ServiceCardViewModel> { webCard, apiCard, tunnelCard, dbCard };
+
+        var sorted = MainViewModel.SortCardsByDependencies(inputList);
+
+        var idxTunnel = sorted.IndexOf(tunnelCard);
+        var idxDb = sorted.IndexOf(dbCard);
+        var idxApi = sorted.IndexOf(apiCard);
+        var idxWeb = sorted.IndexOf(webCard);
+
+        // Tunnel & DB must start before API, and API must start before Web
+        Assert.True(idxDb < idxApi, "Database must come before API");
+        Assert.True(idxApi < idxWeb, "API must come before Web");
+        Assert.True(idxTunnel < idxWeb, "Cloudflared must come before Web");
+    }
+
+    [Fact]
+    public void TestProfileModel_SecretsAreNotSerializedToJson()
+    {
+        var profile = new ProfileModel
+        {
+            Name = "SecretTestProfile",
+            Registry = new ProfileRegistryConfig
+            {
+                Server = "ghcr.io",
+                Username = "testuser",
+                Password = "SuperSecretPassword123"
+            },
+            Cloudflare = new ProfileCloudflareConfig
+            {
+                ApiToken = "SecretApiToken456",
+                TunnelToken = "SecretTunnelToken789"
+            }
+        };
+
+        var json = JsonSerializer.Serialize(profile);
+
+        Assert.DoesNotContain("SuperSecretPassword123", json);
+        Assert.DoesNotContain("SecretApiToken456", json);
+        Assert.DoesNotContain("SecretTunnelToken789", json);
+    }
+
+    [Fact]
+    public void TestServiceCardViewModel_Dispose_DoesNotThrow()
+    {
+        var cred = new CredentialService();
+        var sett = new SettingsService(cred);
+        var dock = new DockerService(sett, cred);
+
+        var svc = new ServiceDefinition { Id = "test-service", Image = "nginx:latest" };
+        var card = new ServiceCardViewModel(svc, "TestProfile", dock, sett);
+
+        // Dispose should unsubscribe cleanly
+        card.Dispose();
+        // Safe multiple dispose
+        card.Dispose();
     }
 }
 

@@ -638,15 +638,43 @@ jobs:
         await PutGitHubFileAsync(owner, repo, branch, path, workflowYaml, "Setup DockerManager central GitHub Actions workflow", token, ct);
     }
 
+    public static bool IsPublishableAppFile(string relativePath)
+    {
+        var normalized = relativePath.Replace('\\', '/').TrimStart('/');
+        var parts = normalized.Split('/');
+        foreach (var part in parts)
+        {
+            if (part.Equals("bin", StringComparison.OrdinalIgnoreCase) ||
+                part.Equals("obj", StringComparison.OrdinalIgnoreCase) ||
+                part.Equals(".git", StringComparison.OrdinalIgnoreCase) ||
+                part.Equals(".vs", StringComparison.OrdinalIgnoreCase) ||
+                part.Equals(".vscode", StringComparison.OrdinalIgnoreCase) ||
+                part.Equals(".idea", StringComparison.OrdinalIgnoreCase) ||
+                part.Equals(".venv", StringComparison.OrdinalIgnoreCase) ||
+                part.Equals("venv", StringComparison.OrdinalIgnoreCase) ||
+                part.Equals("env", StringComparison.OrdinalIgnoreCase) ||
+                part.Equals("__pycache__", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+        var ext = Path.GetExtension(normalized).ToLowerInvariant();
+        if (ext == ".pyc" || ext == ".pyo" || ext == ".pyd" || ext == ".user" || ext == ".suo")
+        {
+            return false;
+        }
+        return true;
+    }
+
     private async Task UploadAppFilesAsync(string owner, string repo, string branch, string appName, string sourceFolder, string dockerfileContent, string token, IProgress<string>? progress, CancellationToken ct)
     {
         // 1. Upload Dockerfile
         var dockerfilePath = $"apps/{appName}/Dockerfile";
         await PutGitHubFileAsync(owner, repo, branch, dockerfilePath, dockerfileContent, $"Update Dockerfile for {appName}", token, ct);
 
-        // 2. Upload files in project directory (excluding venv / cache)
+        // 2. Upload files in project directory (excluding binaries, obj, venv, cache)
         var allFiles = Directory.GetFiles(sourceFolder, "*.*", SearchOption.AllDirectories)
-            .Where(f => !f.Contains(".venv") && !f.Contains("__pycache__") && !f.Contains(".git") && !f.Contains(".idea") && !f.EndsWith(".pyc"))
+            .Where(f => IsPublishableAppFile(Path.GetRelativePath(sourceFolder, f)))
             .ToArray();
 
         var total = allFiles.Length;

@@ -8,7 +8,11 @@ public class ProfileCloudflareConfig
     public string AccountId { get; set; } = string.Empty;
     public string TunnelId { get; set; } = string.Empty;
     public string Domain { get; set; } = string.Empty;
+
+    [JsonIgnore]
     public string ApiToken { get; set; } = string.Empty;
+
+    [JsonIgnore]
     public string TunnelToken { get; set; } = string.Empty;
 
     [JsonIgnore]
@@ -33,6 +37,8 @@ public class ProfileRegistryConfig
     public string Server { get; set; } = string.Empty;
     public string Namespace { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
+
+    [JsonIgnore]
     public string Password { get; set; } = string.Empty;
 
     [JsonIgnore]

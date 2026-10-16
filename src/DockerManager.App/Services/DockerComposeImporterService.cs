@@ -149,6 +149,12 @@ public class DockerComposeImporterService : IDockerComposeImporterService
                     ParseEnvironment(envObj, serviceDef.Environment);
                 }
 
+                // Depends On
+                if (svcProps.TryGetValue("depends_on", out var depObj))
+                {
+                    ParseDependsOn(depObj, serviceDef.DependsOn);
+                }
+
                 result.ParsedServices.Add(serviceDef);
             }
 
@@ -333,6 +339,32 @@ public class DockerComposeImporterService : IDockerComposeImporterService
         }
     }
 
+    private static void ParseDependsOn(object depObj, List<string> targetList)
+    {
+        if (depObj is List<object> depList)
+        {
+            foreach (var item in depList)
+            {
+                var s = item?.ToString()?.Trim();
+                if (!string.IsNullOrWhiteSpace(s) && !targetList.Contains(s, StringComparer.OrdinalIgnoreCase))
+                {
+                    targetList.Add(s);
+                }
+            }
+        }
+        else if (depObj is Dictionary<object, object> depDict)
+        {
+            foreach (var key in depDict.Keys)
+            {
+                var s = key?.ToString()?.Trim();
+                if (!string.IsNullOrWhiteSpace(s) && !targetList.Contains(s, StringComparer.OrdinalIgnoreCase))
+                {
+                    targetList.Add(s);
+                }
+            }
+        }
+    }
+
     private static string FormatDisplayName(string rawName)
     {
         if (string.IsNullOrWhiteSpace(rawName)) return "Container";
@@ -342,3 +374,4 @@ public class DockerComposeImporterService : IDockerComposeImporterService
         return string.Join(" ", capitalized);
     }
 }
+

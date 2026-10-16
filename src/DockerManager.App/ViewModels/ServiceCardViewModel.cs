@@ -6,7 +6,7 @@ using DockerManager.App.Services;
 
 namespace DockerManager.App.ViewModels;
 
-public partial class ServiceCardViewModel : ObservableObject
+public partial class ServiceCardViewModel : ObservableObject, IDisposable
 {
     private readonly IDockerService _dockerService;
     private readonly ISettingsService _settingsService;
@@ -243,18 +243,24 @@ public partial class ServiceCardViewModel : ObservableObject
         StatusMessage = message;
     }
 
-    public async Task RefreshStatusAsync(CancellationToken ct = default)
+    public void Dispose()
+    {
+        LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
+        GC.SuppressFinalize(this);
+    }
+
+    public async Task RefreshStatusAsync(ContainerRuntimeInfo? preFetchedInfo = null, bool fetchStats = true, CancellationToken ct = default)
     {
         if (IsBusy) return;
         try
         {
-            var info = await _dockerService.GetContainerInfoAsync(ContainerName, ct);
+            var info = preFetchedInfo ?? await _dockerService.GetContainerInfoAsync(ContainerName, ct);
             RuntimeInfo = info;
             OnPropertyChanged(nameof(StatusText));
             OnPropertyChanged(nameof(IsRunning));
             OnPropertyChanged(nameof(IsStopped));
 
-            if (info.State == ContainerState.Running)
+            if (info.State == ContainerState.Running && fetchStats)
             {
                 _ = Task.Run(async () =>
                 {
@@ -270,7 +276,7 @@ public partial class ServiceCardViewModel : ObservableObject
                     catch { }
                 });
             }
-            else
+            else if (info.State != ContainerState.Running)
             {
                 ResourceUsageText = string.Empty;
                 HasResourceStats = false;
@@ -302,7 +308,7 @@ public partial class ServiceCardViewModel : ObservableObject
                 hostArg = $"-H {activeServer.TcpUrl} ";
             }
 
-            var script = $"Write-Host '== Verbinding maken met {ContainerName} ==' -ForegroundColor Cyan; docker {hostArg}exec -it {ContainerName} sh";
+            var script = $"Write-Host '== Verbinding maken met {ContainerName} ==' -ForegroundColor Cyan; docker {hostArg}exec -it {ContainerName} sh -c \\\"if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi\\\"";
 
             Process.Start(new ProcessStartInfo
             {
@@ -311,7 +317,7 @@ public partial class ServiceCardViewModel : ObservableObject
                 UseShellExecute = true
             });
 
-            LogActivity("Terminal sessie gestart.");
+            LogActivity("Terminal sessie gestart (met automatische bash/sh detectie).");
         }
         catch (Exception ex)
         {

@@ -18,6 +18,7 @@ public interface IGitHubProfileService
     Task SaveProfileLocallyAsync(ProfileModel profile, string? subfolder, CancellationToken ct = default);
     Task DeleteProfileLocallyAsync(string profileName, string? subfolder = null, CancellationToken ct = default);
     Task EnsureSubfoldersAndMigrateAsync(IEnumerable<DockerServerEnvironment> servers, CancellationToken ct = default);
+    Task<bool> PushProfileToGitHubAsync(ProfileModel profile, string? subfolder = null, CancellationToken ct = default);
 }
 
 public class GitHubProfileService : IGitHubProfileService
@@ -125,6 +126,17 @@ public class GitHubProfileService : IGitHubProfileService
             subfolder = _settingsService.Settings.GetActiveServer().ProfilesSubfolder;
         }
 
+        if (profile.Registry != null && !string.IsNullOrWhiteSpace(profile.Registry.Password) && !string.IsNullOrWhiteSpace(profile.Registry.Server))
+        {
+            _credentialService.SaveRegistryCredential(new RegistryCredential
+            {
+                ServerAddress = profile.Registry.Server,
+                Username = !string.IsNullOrWhiteSpace(profile.Registry.Username) ? profile.Registry.Username : "User",
+                Password = profile.Registry.Password,
+                DisplayName = $"{profile.Registry.Server} ({profile.Name})"
+            });
+        }
+
         var targetDir = Path.Combine(localDir, subfolder);
         Directory.CreateDirectory(targetDir);
 
@@ -145,6 +157,17 @@ public class GitHubProfileService : IGitHubProfileService
         if (string.IsNullOrWhiteSpace(subfolder))
         {
             subfolder = _settingsService.Settings.GetActiveServer().ProfilesSubfolder;
+        }
+
+        if (profile.Registry != null && !string.IsNullOrWhiteSpace(profile.Registry.Password) && !string.IsNullOrWhiteSpace(profile.Registry.Server))
+        {
+            _credentialService.SaveRegistryCredential(new RegistryCredential
+            {
+                ServerAddress = profile.Registry.Server,
+                Username = !string.IsNullOrWhiteSpace(profile.Registry.Username) ? profile.Registry.Username : "User",
+                Password = profile.Registry.Password,
+                DisplayName = $"{profile.Registry.Server} ({profile.Name})"
+            });
         }
 
         var targetDir = Path.Combine(localDir, subfolder);
@@ -228,6 +251,7 @@ public class GitHubProfileService : IGitHubProfileService
                     var profile = JsonSerializer.Deserialize<ProfileModel>(content, JsonOptions);
                     if (profile != null && !string.IsNullOrWhiteSpace(profile.Name))
                     {
+                        HydrateProfileCredentials(profile);
                         profiles.Add(profile);
                     }
                 }
@@ -361,6 +385,7 @@ public class GitHubProfileService : IGitHubProfileService
                     var profile = JsonSerializer.Deserialize<ProfileModel>(content, JsonOptions);
                     if (profile != null && !string.IsNullOrWhiteSpace(profile.Name))
                     {
+                        HydrateProfileCredentials(profile);
                         profiles.Add(profile);
                     }
                 }
@@ -369,6 +394,34 @@ public class GitHubProfileService : IGitHubProfileService
                     // Skip invalid file
                 }
             }
+        }
+
+        // 2. If force refresh requested from GitHub, fetch and sync
+        if (forceRefreshFromGitHub)
+        {
+            try
+            {
+                var remoteProfiles = await FetchProfilesFromGitHubAsync(subfolder, ct);
+                if (remoteProfiles.Count > 0)
+                {
+                    foreach (var remote in remoteProfiles)
+                    {
+                        HydrateProfileCredentials(remote);
+                        await SaveProfileLocallyAsync(remote, subfolder, ct);
+
+                        var existingIdx = profiles.FindIndex(p => p.Name.Equals(remote.Name, StringComparison.OrdinalIgnoreCase));
+                        if (existingIdx >= 0)
+                        {
+                            profiles[existingIdx] = remote;
+                        }
+                        else
+                        {
+                            profiles.Add(remote);
+                        }
+                    }
+                }
+            }
+            catch { }
         }
 
         // If target folder is empty, check if example.json exists in root to copy as starter, or create default
@@ -383,6 +436,7 @@ public class GitHubProfileService : IGitHubProfileService
                     var profile = JsonSerializer.Deserialize<ProfileModel>(content, JsonOptions);
                     if (profile != null && !string.IsNullOrWhiteSpace(profile.Name))
                     {
+                        HydrateProfileCredentials(profile);
                         profiles.Add(profile);
                         await SaveProfileLocallyAsync(profile, subfolder, ct);
                     }
@@ -405,18 +459,110 @@ public class GitHubProfileService : IGitHubProfileService
         return profiles;
     }
 
-    private async Task<List<ProfileModel>> FetchProfilesFromGitHubAsync(CancellationToken ct)
+    private void HydrateProfileCredentials(ProfileModel profile)
     {
-        var results = new List<ProfileModel>();
+        if (profile.Registry != null && !string.IsNullOrWhiteSpace(profile.Registry.Server) && string.IsNullOrWhiteSpace(profile.Registry.Password))
+        {
+            var cred = _credentialService.GetCredentialForImage(profile.Registry.Server);
+            if (cred != null && !string.IsNullOrWhiteSpace(cred.Password))
+            {
+                profile.Registry.Password = cred.Password;
+            }
+        }
+    }
+
+    public async Task<bool> PushProfileToGitHubAsync(ProfileModel profile, string? subfolder = null, CancellationToken ct = default)
+    {
+        try
+        {
+            var settings = _settingsService.Settings;
+            var token = _credentialService.GetGitHubToken();
+            if (string.IsNullOrWhiteSpace(settings.GitHubRepoOwner) || string.IsNullOrWhiteSpace(settings.GitHubRepoName) || string.IsNullOrWhiteSpace(token))
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(subfolder))
+            {
+                subfolder = settings.GetActiveServer().ProfilesSubfolder;
+            }
+
+            var folder = string.IsNullOrWhiteSpace(subfolder) ? settings.GitHubProfilesFolder : $"{settings.GitHubProfilesFolder}/{subfolder}";
+            var safeName = string.Join("_", profile.Name.Split(Path.GetInvalidFileNameChars())).ToLowerInvariant();
+            var path = $"{folder}/{safeName}.json";
+            var json = JsonSerializer.Serialize(profile, JsonOptions);
+            var base64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(json));
+
+            string? sha = null;
+            var getReq = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{settings.GitHubRepoOwner}/{settings.GitHubRepoName}/contents/{path}?ref={settings.GitHubBranch}");
+            getReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            getReq.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+
+            var getResp = await _httpClient.SendAsync(getReq, ct);
+            if (getResp.IsSuccessStatusCode)
+            {
+                var content = await getResp.Content.ReadAsStringAsync(ct);
+                using var doc = JsonDocument.Parse(content);
+                if (doc.RootElement.TryGetProperty("sha", out var shaElem))
+                {
+                    sha = shaElem.GetString();
+                }
+            }
+
+            var putReq = new HttpRequestMessage(HttpMethod.Put, $"https://api.github.com/repos/{settings.GitHubRepoOwner}/{settings.GitHubRepoName}/contents/{path}");
+            putReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            putReq.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+
+            var payload = new Dictionary<string, object>
+            {
+                ["message"] = $"Update profile '{profile.Name}' via DockerManager",
+                ["content"] = base64,
+                ["branch"] = settings.GitHubBranch
+            };
+            if (!string.IsNullOrWhiteSpace(sha))
+            {
+                payload["sha"] = sha;
+            }
+
+            putReq.Content = new StringContent(JsonSerializer.Serialize(payload), System.Text.Encoding.UTF8, "application/json");
+            var putResp = await _httpClient.SendAsync(putReq, ct);
+            return putResp.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task<List<ProfileModel>> FetchProfilesFromGitHubAsync(string? subfolder, CancellationToken ct)
+    {
         var settings = _settingsService.Settings;
         var token = _credentialService.GetGitHubToken();
 
         if (string.IsNullOrWhiteSpace(settings.GitHubRepoOwner) || string.IsNullOrWhiteSpace(settings.GitHubRepoName))
         {
-            return results;
+            return new List<ProfileModel>();
         }
 
-        var url = $"https://api.github.com/repos/{settings.GitHubRepoOwner}/{settings.GitHubRepoName}/contents/{settings.GitHubProfilesFolder}?ref={settings.GitHubBranch}";
+        var folderPath = string.IsNullOrWhiteSpace(subfolder)
+            ? settings.GitHubProfilesFolder
+            : $"{settings.GitHubProfilesFolder}/{subfolder}";
+
+        var results = await FetchProfilesFromFolderAsync(folderPath, token, ct);
+        if (results.Count == 0 && !string.IsNullOrWhiteSpace(subfolder) && !subfolder.Equals(settings.GitHubProfilesFolder, StringComparison.OrdinalIgnoreCase))
+        {
+            // Fallback to base profiles folder if subfolder doesn't exist on GitHub yet
+            results = await FetchProfilesFromFolderAsync(settings.GitHubProfilesFolder, token, ct);
+        }
+
+        return results;
+    }
+
+    private async Task<List<ProfileModel>> FetchProfilesFromFolderAsync(string folderPath, string? token, CancellationToken ct)
+    {
+        var results = new List<ProfileModel>();
+        var settings = _settingsService.Settings;
+        var url = $"https://api.github.com/repos/{settings.GitHubRepoOwner}/{settings.GitHubRepoName}/contents/{folderPath}?ref={settings.GitHubBranch}";
 
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         if (!string.IsNullOrWhiteSpace(token))
@@ -464,6 +610,7 @@ public class GitHubProfileService : IGitHubProfileService
                         var profile = JsonSerializer.Deserialize<ProfileModel>(fileContent, JsonOptions);
                         if (profile != null && !string.IsNullOrWhiteSpace(profile.Name))
                         {
+                            HydrateProfileCredentials(profile);
                             results.Add(profile);
                         }
                     }

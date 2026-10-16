@@ -44,10 +44,12 @@ public class RestoreResult
 public class BackupService : IBackupService
 {
     private readonly ISettingsService _settingsService;
+    private readonly IDockerService? _dockerService;
 
-    public BackupService(ISettingsService settingsService)
+    public BackupService(ISettingsService settingsService, IDockerService? dockerService = null)
     {
         _settingsService = settingsService;
+        _dockerService = dockerService;
     }
 
     public async Task<BackupResult> CreateBackupAsync(
@@ -74,7 +76,7 @@ public class BackupService : IBackupService
             var server = _settingsService.Settings.GetActiveServer();
             var isRemote = server.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase);
 
-            if (isRemote)
+            if (isRemote && _dockerService == null)
             {
                 result.Warnings.Add($"Let op: '{server.Name}' is een externe VPS/server ({server.TcpUrl}). De fysieke bestanden staan op de externe host ({server.GetEffectiveVolumesRootPath()}) en kunnen niet rechtstreeks via het lokale bestandssysteem worden ingepakt. Deze back-up bevat de volledige profiel- en containerconfiguratie.");
             }
@@ -82,7 +84,7 @@ public class BackupService : IBackupService
             // Collect all files from volumes
             foreach (var service in profile.Services)
             {
-                var containerName = string.IsNullOrWhiteSpace(service.ContainerName) ? service.Id : service.ContainerName;
+                var containerName = service.GetEffectiveContainerName();
 
                 foreach (var vol in service.Volumes)
                 {
@@ -264,8 +266,8 @@ public class BackupService : IBackupService
 
                     // Find matching service
                     var service = activeProfile.Services.FirstOrDefault(s =>
-                        (string.IsNullOrWhiteSpace(s.ContainerName) ? s.Id : s.ContainerName) == containerName ||
-                        s.Id == containerName);
+                        s.GetEffectiveContainerName().Equals(containerName, StringComparison.OrdinalIgnoreCase) ||
+                        s.Id.Equals(containerName, StringComparison.OrdinalIgnoreCase));
 
                     string targetFilePath;
                     if (service != null)

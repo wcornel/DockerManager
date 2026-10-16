@@ -333,7 +333,7 @@ public partial class MainViewModel : ObservableObject
             StatusNotification = $"⏹ Containers van vorig profiel '{oldProfile.Name}' stoppen...";
             foreach (var svc in oldProfile.Services)
             {
-                var cName = string.IsNullOrWhiteSpace(svc.ContainerName) ? $"{oldProfile.Name.ToLowerInvariant()}_{svc.Id}" : svc.ContainerName;
+                var cName = svc.GetEffectiveContainerName();
                 try
                 {
                     await _dockerService.StopContainerAsync(cName);
@@ -346,8 +346,22 @@ public partial class MainViewModel : ObservableObject
         await RefreshAllCardStatusesAsync();
     }
 
+    [RelayCommand]
+    private async Task RetryDockerConnectionAsync()
+    {
+        await CheckDockerStatusAsync();
+        if (IsDockerConnected)
+        {
+            await RefreshAllCardStatusesAsync();
+        }
+    }
+
     public void RebuildServiceCards()
     {
+        foreach (var c in ServiceCards)
+        {
+            c.Dispose();
+        }
         ServiceCards.Clear();
         if (SelectedProfile == null) return;
 
@@ -395,7 +409,7 @@ public partial class MainViewModel : ObservableObject
 
         foreach (var svc in profileToDelete.Services)
         {
-            var cName = string.IsNullOrWhiteSpace(svc.ContainerName) ? svc.Id : svc.ContainerName;
+            var cName = svc.GetEffectiveContainerName();
             try
             {
                 await _dockerService.StopContainerAsync(cName);
@@ -473,11 +487,27 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    private int _pollTicksCount;
+
     public async Task RefreshAllCardStatusesAsync()
     {
+        _pollTicksCount++;
+        bool shouldFetchStats = (_pollTicksCount % 3 == 0);
+
+        List<ContainerRuntimeInfo>? allContainers = null;
+        try
+        {
+            allContainers = await _dockerService.GetAllContainersAsync();
+        }
+        catch { }
+
+        var containerMap = allContainers?.ToDictionary(c => c.ContainerName, c => c, StringComparer.OrdinalIgnoreCase);
+
         foreach (var card in ServiceCards.ToList())
         {
-            await card.RefreshStatusAsync();
+            ContainerRuntimeInfo? preFetched = null;
+            containerMap?.TryGetValue(card.ContainerName, out preFetched);
+            await card.RefreshStatusAsync(preFetched, shouldFetchStats);
         }
     }
 
@@ -510,9 +540,19 @@ public partial class MainViewModel : ObservableObject
             settings.LastUpdateCheckUtc = DateTime.UtcNow;
             _settingsService.Save();
 
-            StatusNotification = $"🔔 Periodieke controle voltooid ({settings.UpdateCheckFrequency.ToLowerInvariant()}). Klik op 'Update Alles' om de nieuwste versies te laden.";
+            int updatesCount = 0;
+            foreach (var card in ServiceCards.ToList())
+            {
+                var hasUpdate = await _dockerService.CheckImageUpdateAvailableAsync(card.Service, SelectedProfile?.Registry);
+                card.HasUpdateAvailable = hasUpdate;
+                if (hasUpdate) updatesCount++;
+            }
+
+            if (updatesCount > 0)
+            {
+                StatusNotification = $"🔔 {updatesCount} container update(s) gevonden! Klik op 'Update Alles' om de nieuwste versies te laden.";
+            }
         }
-        await Task.CompletedTask;
     }
 
     [RelayCommand]
@@ -539,10 +579,59 @@ public partial class MainViewModel : ObservableObject
         RequestAddNewService?.Invoke();
     }
 
+    public static List<ServiceCardViewModel> SortCardsByDependencies(IEnumerable<ServiceCardViewModel> cards)
+    {
+        var cardList = cards.ToList();
+        var cardMap = cardList.ToDictionary(c => c.Service.Id, c => c, StringComparer.OrdinalIgnoreCase);
+        var result = new List<ServiceCardViewModel>();
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Visit(ServiceCardViewModel card)
+        {
+            if (visited.Contains(card.Service.Id)) return;
+            visited.Add(card.Service.Id);
+
+            if (card.Service.DependsOn != null)
+            {
+                foreach (var depId in card.Service.DependsOn)
+                {
+                    if (cardMap.TryGetValue(depId, out var depCard))
+                    {
+                        Visit(depCard);
+                    }
+                }
+            }
+            result.Add(card);
+        }
+
+        // Prioritize infrastructure (cloudflared, databases) first
+        foreach (var card in cardList.Where(c => IsInfrastructureService(c.Service)))
+        {
+            Visit(card);
+        }
+
+        foreach (var card in cardList)
+        {
+            Visit(card);
+        }
+
+        return result;
+    }
+
+    private static bool IsInfrastructureService(ServiceDefinition svc)
+    {
+        var id = (svc.Id ?? "").ToLowerInvariant();
+        var img = (svc.Image ?? "").ToLowerInvariant();
+        return id.Contains("cloudflared") || id.Contains("tunnel") || id.Contains("db") || id.Contains("postgres") ||
+               id.Contains("mysql") || id.Contains("mariadb") || id.Contains("redis") || id.Contains("mongo") ||
+               img.Contains("cloudflared") || img.Contains("postgres") || img.Contains("mysql") || img.Contains("redis");
+    }
+
     [RelayCommand]
     private async Task StartAllAsync()
     {
-        foreach (var card in ServiceCards.ToList())
+        var orderedCards = SortCardsByDependencies(ServiceCards);
+        foreach (var card in orderedCards)
         {
             if (card.IsStopped && !card.IsBusy)
             {
@@ -640,6 +729,18 @@ public partial class MainViewModel : ObservableObject
         _lastHandledChange = DateTime.UtcNow.AddSeconds(2);
         var subfolder = SelectedServer?.ProfilesSubfolder ?? _settingsService.Settings.GetActiveServer().ProfilesSubfolder;
         await _gitHubProfileService.SaveProfileLocallyAsync(SelectedProfile, subfolder);
+
+        if (IsGitHubLoggedIn)
+        {
+            try
+            {
+                await _gitHubProfileService.PushProfileToGitHubAsync(SelectedProfile, subfolder);
+            }
+            catch (Exception ex)
+            {
+                StatusNotification = $"⚠️ Lokaal opgeslagen, maar GitHub sync mislukt: {ex.Message}";
+            }
+        }
     }
 
     [RelayCommand]

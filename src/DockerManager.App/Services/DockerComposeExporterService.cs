@@ -102,6 +102,12 @@ public class DockerComposeExporterService : IDockerComposeExporterService
                 svcConfig["command"] = svc.Command;
             }
 
+            // Depends On
+            if (svc.DependsOn != null && svc.DependsOn.Count > 0)
+            {
+                svcConfig["depends_on"] = svc.DependsOn;
+            }
+
             servicesDict[svcKey] = svcConfig;
         }
 
