@@ -923,7 +923,7 @@ public class DockerService : IDockerService
             result.WorkingDir = inspect.Config?.WorkingDir;
             if (inspect.Config?.Cmd != null && inspect.Config.Cmd.Count > 0)
             {
-                result.Command = string.Join(" ", inspect.Config.Cmd);
+                result.Command = Helpers.CommandLineHelper.FormatCommandLine(inspect.Config.Cmd);
             }
 
             // Suggested names

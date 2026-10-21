@@ -285,7 +285,7 @@ public partial class EditServiceViewModel : ObservableObject
             _description = existingService.Description;
             _restartPolicy = existingService.RestartPolicy;
             _workingDir = existingService.WorkingDir ?? string.Empty;
-            _command = existingService.Command != null ? string.Join(" ", existingService.Command) : string.Empty;
+            _command = existingService.Command != null ? Helpers.CommandLineHelper.FormatCommandLine(existingService.Command) : string.Empty;
             _autoStart = existingService.AutoStart;
             _requiresAuth = existingService.RequiresAuth;
 
@@ -668,7 +668,7 @@ public partial class EditServiceViewModel : ObservableObject
             Description = Description,
             RestartPolicy = RestartPolicy,
             WorkingDir = string.IsNullOrWhiteSpace(WorkingDir) ? null : WorkingDir.Trim(),
-            Command = string.IsNullOrWhiteSpace(Command) ? null : Command.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(),
+            Command = Helpers.CommandLineHelper.ParseCommandLine(Command),
             AutoStart = AutoStart,
             RequiresAuth = RequiresAuth
         };

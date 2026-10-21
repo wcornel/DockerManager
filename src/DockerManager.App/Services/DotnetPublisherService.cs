@@ -174,8 +174,8 @@ public class DotnetPublisherService : IDotnetPublisherService
             sb.AppendLine($"EXPOSE {request.ContainerPort}");
 
             // Format CMD as JSON array or shell command
-            var cmdParts = request.StartCommand.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            if (cmdParts.Length > 0)
+            var cmdParts = Helpers.CommandLineHelper.ParseCommandLine(request.StartCommand);
+            if (cmdParts != null && cmdParts.Count > 0)
             {
                 var quoted = string.Join(", ", cmdParts.Select(p => $"\"{p}\""));
                 sb.AppendLine($"CMD [{quoted}]");

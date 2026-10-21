@@ -155,6 +155,25 @@ public class DockerComposeImporterService : IDockerComposeImporterService
                     ParseDependsOn(depObj, serviceDef.DependsOn);
                 }
 
+                // Working Dir
+                if (svcProps.TryGetValue("working_dir", out var wdObj) && wdObj != null)
+                {
+                    serviceDef.WorkingDir = wdObj.ToString()?.Trim();
+                }
+
+                // Command
+                if (svcProps.TryGetValue("command", out var cmdObj) && cmdObj != null)
+                {
+                    if (cmdObj is List<object> cmdList)
+                    {
+                        serviceDef.Command = cmdList.Select(x => x?.ToString() ?? string.Empty).Where(x => !string.IsNullOrEmpty(x)).ToList();
+                    }
+                    else if (cmdObj is string cmdStr)
+                    {
+                        serviceDef.Command = Helpers.CommandLineHelper.ParseCommandLine(cmdStr);
+                    }
+                }
+
                 result.ParsedServices.Add(serviceDef);
             }
 
