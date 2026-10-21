@@ -1957,6 +1957,20 @@ services:
         Assert.Equal(3, svc.Command.Count);
         Assert.Equal("daemon off;", svc.Command[2]);
     }
+
+    [Fact]
+    public async Task TestGetContainerStatsSummaryAsync_InvalidContainer_ReturnsNullGracefully()
+    {
+        var cred = new CredentialService();
+        var sett = new SettingsService(cred);
+        var dock = new DockerService(sett, cred);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        var result = await dock.GetContainerStatsSummaryAsync("non_existent_container_xyz_123", cts.Token);
+
+        // Should return null and not crash with ObjectDisposedException
+        Assert.Null(result);
+    }
 }
 
 

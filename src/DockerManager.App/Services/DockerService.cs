@@ -654,18 +654,34 @@ public class DockerService : IDockerService
 
     public async Task<string?> GetContainerStatsSummaryAsync(string containerName, CancellationToken ct = default)
     {
+        CancellationTokenSource? cts = null;
         try
         {
             var client = GetClient();
-            var tcs = new TaskCompletionSource<ContainerStatsResponse?>();
+            var tcs = new TaskCompletionSource<ContainerStatsResponse?>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(TimeSpan.FromSeconds(2));
 
+            int completed = 0;
             var progress = new Progress<ContainerStatsResponse>(stats =>
             {
-                tcs.TrySetResult(stats);
-                cts.Cancel();
+                try
+                {
+                    if (Interlocked.Exchange(ref completed, 1) == 0)
+                    {
+                        tcs.TrySetResult(stats);
+                        try
+                        {
+                            if (cts != null && !cts.IsCancellationRequested)
+                            {
+                                cts.Cancel();
+                            }
+                        }
+                        catch { }
+                    }
+                }
+                catch { }
             });
 
             try
@@ -673,8 +689,18 @@ public class DockerService : IDockerService
                 await client.Containers.GetContainerStatsAsync(containerName, new ContainerStatsParameters { Stream = false }, progress, cts.Token);
             }
             catch (OperationCanceledException) { }
+            catch { }
 
-            var s = await tcs.Task;
+            // Ensure tcs is completed even if stream aborted or timed out
+            tcs.TrySetResult(null);
+
+            ContainerStatsResponse? s = null;
+            try
+            {
+                s = await tcs.Task;
+            }
+            catch { }
+
             if (s == null) return null;
 
             double cpuPercent = 0.0;
@@ -701,6 +727,16 @@ public class DockerService : IDockerService
         catch
         {
             return null;
+        }
+        finally
+        {
+            // Safely cancel CTS if not already canceled, but avoid aggressive Dispose that causes ObjectDisposedException
+            // on late-arriving Progress callbacks queued on the ThreadPool.
+            try
+            {
+                cts?.Cancel();
+            }
+            catch { }
         }
     }
 
