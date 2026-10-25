@@ -1,0 +1,169 @@
+{
+  "Name": "OracleCloud",
+  "Description": "Oracle cloud server (via tailscale)",
+  "AutoStopPreviousOnSwitch": false,
+  "VolumesSubfolder": "",
+  "Cloudflare": {
+    "AccountId": "",
+    "TunnelId": "",
+    "Domain": "wcor.nl"
+  },
+  "Registry": {
+    "Server": "ghcr.io",
+    "Namespace": "wcornel",
+    "Username": "wcornel"
+  },
+  "Services": [
+    {
+      "Id": "versieapi",
+      "DisplayName": "VersieApi",
+      "ContainerName": "VersieApi",
+      "Image": "ghcr.io/wcornel/versieapi:latest",
+      "Description": "",
+      "AutoStart": false,
+      "RequiresAuth": true,
+      "RestartPolicy": "unless-stopped",
+      "NetworkMode": null,
+      "Ports": [
+        {
+          "HostIp": "0.0.0.0",
+          "HostPort": 8002,
+          "ContainerPort": 8002,
+          "Protocol": "tcp"
+        }
+      ],
+      "Volumes": [],
+      "Environment": {
+        "LANG": "C.UTF-8",
+        "GPG_KEY": "E3FF2839C048B25C084DEBE9B26995E310250568",
+        "PYTHON_VERSION": "3.9.25",
+        "PYTHON_SHA256": "00e07d7c0f2f0cc002432d1ee84d2a40dae404a99303e3f97701c10966c91834",
+        "ASPNETCORE_FORWARDEDHEADERS_ENABLED": "true"
+      },
+      "Labels": {
+        "cloudflare.tunnel.hostname": "fastapi.wcor.nl"
+      },
+      "Command": [
+        "uvicorn",
+        "startversieinformatieapi:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8002"
+      ],
+      "WorkingDir": "/app",
+      "CloudflareHostname": "fastapi.wcor.nl",
+      "LastUpdatedUtc": null,
+      "DependsOn": []
+    },
+    {
+      "Id": "cloudflared",
+      "DisplayName": "Cloudflare Tunnel Agent",
+      "ContainerName": "cloudflared",
+      "Image": "cloudflare/cloudflared:latest",
+      "Description": "Cloudflare Zero Trust tunnel agent voor beveiligde publieke toegang en webhooks",
+      "AutoStart": false,
+      "RequiresAuth": true,
+      "RestartPolicy": "unless-stopped",
+      "NetworkMode": "host",
+      "Ports": [],
+      "Volumes": [],
+      "Environment": {},
+      "Labels": {},
+      "Command": [
+        "tunnel",
+        "--no-autoupdate",
+        "run",
+        "--token",
+        "eyJhIjoiNjFlOTBlZGI3NmJlMzg0MjdiNzQ5NGM3MzMzZTkxNDYiLCJ0IjoiODNjNWFkMjItN2RjZi00NWM1LWJmMjgtZGEzZWI2Y2Q0ODg3IiwicyI6Im50bEtiaE85Vm9zbXZrWWdIUHVBajM4SmRhOUVwaFNTN3VSY3EyaDZEYUE9In0="
+      ],
+      "WorkingDir": null,
+      "CloudflareHostname": null,
+      "LastUpdatedUtc": null,
+      "DependsOn": []
+    },
+    {
+      "Id": "bergerscoresheet",
+      "DisplayName": "BergerScoresheet",
+      "ContainerName": "BergerScoresheet",
+      "Image": "ghcr.io/wcornel/bergerscoresheet:latest",
+      "Description": "",
+      "AutoStart": false,
+      "RequiresAuth": true,
+      "RestartPolicy": "unless-stopped",
+      "NetworkMode": null,
+      "Ports": [
+        {
+          "HostIp": "0.0.0.0",
+          "HostPort": 8003,
+          "ContainerPort": 8080,
+          "Protocol": "tcp"
+        }
+      ],
+      "Volumes": [],
+      "Environment": {
+        "APP_UID": "1654",
+        "ASPNETCORE_HTTP_PORTS": "8080",
+        "DOTNET_VERSION": "10.0.11",
+        "ASPNET_VERSION": "10.0.11",
+        "ASPNETCORE_URLS": "http://\u002B:8080",
+        "ASPNETCORE_ENVIRONMENT": "Production",
+        "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT": "false",
+        "TZ": "Europe/Amsterdam",
+        "ASPNETCORE_FORWARDEDHEADERS_ENABLED": "true"
+      },
+      "Labels": {
+        "cloudflare.tunnel.hostname": "indeling.wcor.nl"
+      },
+      "Command": null,
+      "WorkingDir": "/app",
+      "CloudflareHostname": "indeling.wcor.nl",
+      "LastUpdatedUtc": "2026-10-25T05:34:10.246736Z",
+      "DependsOn": []
+    },
+    {
+      "Id": "kennisbase",
+      "DisplayName": "Kennisbase",
+      "ContainerName": "Kennisbase",
+      "Image": "ghcr.io/wcornel/kennisbase:latest",
+      "Description": "",
+      "AutoStart": false,
+      "RequiresAuth": true,
+      "RestartPolicy": "unless-stopped",
+      "NetworkMode": null,
+      "Ports": [
+        {
+          "HostIp": "0.0.0.0",
+          "HostPort": 8007,
+          "ContainerPort": 8007,
+          "Protocol": "tcp"
+        }
+      ],
+      "Volumes": [],
+      "Environment": {
+        "LANG": "C.UTF-8",
+        "GPG_KEY": "A035C8C19219BA821ECEA86B64E628F8D684696D",
+        "PYTHON_VERSION": "3.11.16",
+        "PYTHON_SHA256": "91bcdebfdde239a003ae93738a7fce0f9230fee5c4bc2b86f6e6e8c6f98aabe8",
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PIP_NO_CACHE_DIR": "off",
+        "PIP_DISABLE_PIP_VERSION_CHECK": "on",
+        "ASPNETCORE_FORWARDEDHEADERS_ENABLED": "true"
+      },
+      "Labels": {
+        "cloudflare.tunnel.hostname": "kennisbase.wcor.nl"
+      },
+      "Command": [
+        "python",
+        "manage.py",
+        "runserver",
+        "0.0.0.0:8007"
+      ],
+      "WorkingDir": "/app",
+      "CloudflareHostname": "kennisbase.wcor.nl",
+      "LastUpdatedUtc": null,
+      "DependsOn": []
+    }
+  ]
+}
