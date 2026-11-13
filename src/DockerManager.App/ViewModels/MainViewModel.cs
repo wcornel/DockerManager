@@ -5,6 +5,7 @@ using System.Windows.Data;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using DockerManager.App.Helpers;
 using DockerManager.App.Models;
 using DockerManager.App.Services;
 
@@ -35,8 +36,8 @@ public partial class MainViewModel : ObservableObject
         _settingsService.Settings.DockerTcpUrl = value.TcpUrl;
         _settingsService.Save();
 
-        _ = CheckDockerStatusAsync();
-        _ = LoadProfilesAsync(forceRefresh: false);
+        CheckDockerStatusAsync().SafeFireAndForget(nameof(CheckDockerStatusAsync));
+        LoadProfilesAsync(forceRefresh: false).SafeFireAndForget(nameof(LoadProfilesAsync));
     }
 
     [ObservableProperty]
@@ -80,7 +81,7 @@ public partial class MainViewModel : ObservableObject
     private bool _hasExternalProfileChanges;
 
     [ObservableProperty]
-    private string _updateAllButtonText = "🚀 Update Alles";
+    private string _updateAllButtonText = LocalizationService.Instance.Get("Tray_UpdateAll");
 
     [ObservableProperty]
     private string _updateAllButtonBackground = "#2563EB";
@@ -473,18 +474,7 @@ public partial class MainViewModel : ObservableObject
             return ConfirmPrompt(message, title);
         }
 
-        try
-        {
-            return System.Windows.MessageBox.Show(
-                message,
-                title,
-                System.Windows.MessageBoxButton.YesNo,
-                System.Windows.MessageBoxImage.Question) == System.Windows.MessageBoxResult.Yes;
-        }
-        catch
-        {
-            return false;
-        }
+        return WpfDialogService.Instance.Confirm(message, title);
     }
 
     private int _pollTicksCount;
@@ -747,7 +737,7 @@ public partial class MainViewModel : ObservableObject
     private async Task ReloadProfilesAsync()
     {
         HasExternalProfileChanges = false;
-        UpdateAllButtonText = "🚀 Update Alles";
+        UpdateAllButtonText = LocalizationService.Instance.Get("Tray_UpdateAll");
         UpdateAllButtonBackground = "#2563EB";
         _lastHandledChange = DateTime.UtcNow.AddSeconds(2);
         await LoadProfilesAsync(forceRefresh: false);
@@ -758,7 +748,7 @@ public partial class MainViewModel : ObservableObject
     private void DismissProfileChangesAlert()
     {
         HasExternalProfileChanges = false;
-        UpdateAllButtonText = "🚀 Update Alles";
+        UpdateAllButtonText = LocalizationService.Instance.Get("Tray_UpdateAll");
         UpdateAllButtonBackground = "#2563EB";
         _lastHandledChange = DateTime.UtcNow.AddSeconds(2);
     }
@@ -814,7 +804,7 @@ public partial class MainViewModel : ObservableObject
                 _lastHandledChange = DateTime.UtcNow;
 
                 HasExternalProfileChanges = true;
-                UpdateAllButtonText = "🔔 Update Beschikbaar";
+                UpdateAllButtonText = LocalizationService.Instance.Get("Toolbar_UpdateAvailable");
                 UpdateAllButtonBackground = "#F59E0B";
                 StatusNotification = $"🔔 Profiel '{currentProfileName}' is gewijzigd op schijf! Klik op 'Nu Herladen & Toepassen'.";
             });

@@ -42,7 +42,7 @@ public partial class LogViewerDialog : Window
         {
             if (!string.IsNullOrEmpty(LogTextBox.Text))
             {
-                Clipboard.SetText(LogTextBox.Text);
+                Helpers.SafeClipboardHelper.SetText(LogTextBox.Text);
             }
         }
         catch { }

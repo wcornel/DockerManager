@@ -1,8 +1,7 @@
 <Application x:Class="DockerManager.App.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:helpers="clr-namespace:DockerManager.App.Helpers"
-             StartupUri="MainWindow.xaml">
+             xmlns:helpers="clr-namespace:DockerManager.App.Helpers">
     <Application.Resources>
         <ResourceDictionary>
             <helpers:StateToBrushConverter x:Key="StateToBrushConverter"/>

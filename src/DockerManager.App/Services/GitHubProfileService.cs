@@ -490,7 +490,7 @@ public class GitHubProfileService : IGitHubProfileService
             var folder = string.IsNullOrWhiteSpace(subfolder) ? settings.GitHubProfilesFolder : $"{settings.GitHubProfilesFolder}/{subfolder}";
             var safeName = string.Join("_", profile.Name.Split(Path.GetInvalidFileNameChars())).ToLowerInvariant();
             var path = $"{folder}/{safeName}.json";
-            var json = JsonSerializer.Serialize(profile, JsonOptions);
+            var json = SerializeProfileForSync(profile);
             var base64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(json));
 
             string? sha = null;
@@ -528,10 +528,41 @@ public class GitHubProfileService : IGitHubProfileService
             var putResp = await _httpClient.SendAsync(putReq, ct);
             return putResp.IsSuccessStatusCode;
         }
-        catch
+        catch (Exception ex)
         {
+            AppLogger.LogWarning(nameof(GitHubProfileService), $"Failed to save profile '{profile.Name}' to GitHub", ex);
             return false;
         }
+    }
+
+    /// <summary>
+    /// Serializes a profile for remote GitHub sync while scrubbing raw Cloudflare tunnel tokens
+    /// from cloudflared service commands so secrets are never pushed to a repository.
+    /// </summary>
+    public static string SerializeProfileForSync(ProfileModel profile)
+    {
+        var json = JsonSerializer.Serialize(profile, JsonOptions);
+        var sanitized = JsonSerializer.Deserialize<ProfileModel>(json, JsonOptions);
+        if (sanitized == null) return json;
+
+        foreach (var svc in sanitized.Services)
+        {
+            if (svc.Command == null || svc.Command.Count == 0) continue;
+            var isCloudflared = svc.Id.Equals("cloudflared", StringComparison.OrdinalIgnoreCase) ||
+                                svc.Image.StartsWith("cloudflare/cloudflared", StringComparison.OrdinalIgnoreCase);
+            if (!isCloudflared) continue;
+
+            for (int i = 0; i < svc.Command.Count - 1; i++)
+            {
+                if (svc.Command[i].Equals("--token", StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(svc.Command[i + 1]))
+                {
+                    svc.Command[i + 1] = "${CLOUDFLARE_TUNNEL_TOKEN}";
+                }
+            }
+        }
+
+        return JsonSerializer.Serialize(sanitized, JsonOptions);
     }
 
     private async Task<List<ProfileModel>> FetchProfilesFromGitHubAsync(string? subfolder, CancellationToken ct)

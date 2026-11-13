@@ -1,11 +1,16 @@
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
+using DockerManager.App.Services;
+using DockerManager.App.ViewModels;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DockerManager.App;
 
 public partial class App : System.Windows.Application
 {
+    public static IServiceProvider Services { get; private set; } = null!;
+
     private Mutex? _instanceMutex;
     private EventWaitHandle? _restoreEvent;
     private const string MutexName = "DockerManager_SingleInstance_Mutex";
@@ -27,7 +32,10 @@ public partial class App : System.Windows.Application
                     existingEvent.Set();
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                AppLogger.LogWarning(nameof(App), "Failed to signal existing instance to restore", ex);
+            }
 
             Shutdown();
             return;
@@ -35,13 +43,17 @@ public partial class App : System.Windows.Application
 
         base.OnStartup(e);
 
+        Services = ConfigureServices();
+
         try
         {
-            var creds = new Services.CredentialService();
-            var settings = new Services.SettingsService(creds);
-            Services.LocalizationService.Instance.SetLanguage(settings.Settings.Language);
+            var settings = Services.GetRequiredService<ISettingsService>();
+            LocalizationService.Instance.SetLanguage(settings.Settings.Language);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            AppLogger.LogWarning(nameof(App), "Failed to load initial language setting", ex);
+        }
 
         // Start listening for restore signals from any second launch attempts
         try
@@ -63,7 +75,10 @@ public partial class App : System.Windows.Application
                         });
                     }
                     catch (ObjectDisposedException) { break; }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        AppLogger.LogWarning(nameof(App), "Error in single-instance restore listener", ex);
+                    }
                 }
             })
             {
@@ -71,11 +86,48 @@ public partial class App : System.Windows.Application
             };
             listenerThread.Start();
         }
-        catch { }
+        catch (Exception ex)
+        {
+            AppLogger.LogWarning(nameof(App), "Failed to start single-instance restore listener", ex);
+        }
+
+        // Register resilient clipboard handlers on TextBox controls to prevent clipboard lock crashes
+        Helpers.SafeClipboardHelper.RegisterGlobalTextBoxClipboardHandlers();
 
         DispatcherUnhandledException += App_DispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
         TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
+
+        var mainWindow = Services.GetRequiredService<MainWindow>();
+        MainWindow = mainWindow;
+        mainWindow.Show();
+    }
+
+    private static IServiceProvider ConfigureServices()
+    {
+        var services = new ServiceCollection();
+
+        services.AddSingleton<ICredentialService>(_ => new CredentialService());
+        services.AddSingleton<ISettingsService, SettingsService>();
+        services.AddSingleton<IDialogService>(_ => WpfDialogService.Instance);
+        services.AddSingleton<ICloudflareService>(sp => new CloudflareService(
+            sp.GetRequiredService<ISettingsService>(),
+            sp.GetRequiredService<ICredentialService>()));
+        services.AddSingleton<IGitHubProfileService, GitHubProfileService>();
+        services.AddSingleton<IDockerService, DockerService>();
+        services.AddSingleton<IGitHubAuthService, GitHubAuthService>();
+        services.AddSingleton<IBackupService, BackupService>();
+        services.AddSingleton<IDotnetAppScannerService, DotnetAppScannerService>();
+        services.AddSingleton<IPythonAppScannerService, PythonAppScannerService>();
+        services.AddSingleton<IDotnetPublisherService, DotnetPublisherService>();
+        services.AddSingleton<IAppUpdateService, AppUpdateService>();
+        services.AddSingleton<IDockerComposeImporterService, DockerComposeImporterService>();
+        services.AddSingleton<IDockerComposeExporterService, DockerComposeExporterService>();
+
+        services.AddTransient<MainViewModel>();
+        services.AddTransient<MainWindow>();
+
+        return services.BuildServiceProvider();
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -86,15 +138,45 @@ public partial class App : System.Windows.Application
             _instanceMutex?.ReleaseMutex();
             _instanceMutex?.Dispose();
         }
-        catch { }
+        catch (Exception ex)
+        {
+            AppLogger.LogWarning(nameof(App), "Error releasing single-instance handles on exit", ex);
+        }
 
         base.OnExit(e);
     }
 
     private void App_DispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
+        // Suppress transient clipboard lock exceptions (e.g. CLIPBRD_E_CANT_OPEN / 0x800401D0)
+        if (e.Exception is System.Runtime.InteropServices.COMException comEx && (uint)comEx.ErrorCode == 0x800401D0)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Exception is System.Runtime.InteropServices.ExternalException extEx &&
+            (extEx.ErrorCode == unchecked((int)0x800401D0) || 
+             (extEx.Message?.Contains("klembord", StringComparison.OrdinalIgnoreCase) ?? false) || 
+             (extEx.Message?.Contains("clipboard", StringComparison.OrdinalIgnoreCase) ?? false)))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Exception.InnerException is System.Runtime.InteropServices.COMException innerCom && (uint)innerCom.ErrorCode == 0x800401D0)
+        {
+            e.Handled = true;
+            return;
+        }
+
         e.Handled = true;
-        MessageBox.Show($"Er is een onverwachte fout opgetreden in de interface:\n\n{e.Exception.Message}",
+        AppLogger.LogError("DispatcherUnhandledException", e.Exception);
+        var message = !string.IsNullOrWhiteSpace(e.Exception.Message)
+            ? e.Exception.Message
+            : $"{e.Exception.GetType().Name} ({e.Exception.HResult:X8})";
+
+        MessageBox.Show($"Er is een onverwachte fout opgetreden in de interface:\n\n{message}",
             "DockerManager — Melding", MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 
@@ -102,6 +184,7 @@ public partial class App : System.Windows.Application
     {
         if (e.ExceptionObject is Exception ex)
         {
+            AppLogger.LogError("CurrentDomain_UnhandledException", ex);
             MessageBox.Show($"Kritieke fout opgetreden:\n\n{ex.Message}",
                 "DockerManager — Fout", MessageBoxButton.OK, MessageBoxImage.Error);
         }
@@ -109,6 +192,7 @@ public partial class App : System.Windows.Application
 
     private void TaskScheduler_UnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
     {
+        AppLogger.LogError("TaskScheduler_UnobservedTaskException", e.Exception);
         e.SetObserved();
     }
 }

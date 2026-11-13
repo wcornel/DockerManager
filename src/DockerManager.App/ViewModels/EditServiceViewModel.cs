@@ -401,6 +401,14 @@ public partial class EditServiceViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private void CopyEnvVar(KeyValueItem item)
+    {
+        if (item == null) return;
+        var text = $"{item.Key}={item.Value}";
+        Helpers.SafeClipboardHelper.SetText(text);
+    }
+
+    [RelayCommand]
     private async Task SaveAsync()
     {
         if (string.IsNullOrWhiteSpace(DisplayName))
@@ -548,18 +556,7 @@ public partial class EditServiceViewModel : ObservableObject
             return ConfirmPrompt(message, title);
         }
 
-        try
-        {
-            return System.Windows.MessageBox.Show(
-                message,
-                title,
-                System.Windows.MessageBoxButton.YesNo,
-                System.Windows.MessageBoxImage.Question) == System.Windows.MessageBoxResult.Yes;
-        }
-        catch
-        {
-            return false;
-        }
+        return WpfDialogService.Instance.Confirm(message, title);
     }
 
     [RelayCommand]

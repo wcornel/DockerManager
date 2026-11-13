@@ -118,7 +118,7 @@ public partial class GitHubLoginViewModel : ObservableObject
     {
         try
         {
-            var text = Clipboard.GetText();
+            var text = Helpers.SafeClipboardHelper.GetText();
             if (!string.IsNullOrWhiteSpace(text))
             {
                 TokenInput = text.Trim();

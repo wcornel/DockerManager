@@ -221,17 +221,15 @@ public partial class SettingsViewModel : ObservableObject
         var serverCount = Tabs.OfType<ServerSettingsTabViewModel>().Count();
         if (serverCount <= 1)
         {
-            MessageBox.Show("Er moet minimaal één Docker server geconfigureerd blijven.", "Kan niet verwijderen", MessageBoxButton.OK, MessageBoxImage.Warning);
+            WpfDialogService.Instance.ShowWarning("Er moet minimaal één Docker server geconfigureerd blijven.", "Kan niet verwijderen");
             return;
         }
 
-        var result = MessageBox.Show(
+        var confirmed = WpfDialogService.Instance.Confirm(
             $"Weet je zeker dat je server '{serverTab.Name}' wilt verwijderen uit DockerManager?\n\nDe serverconfiguratie wordt verwijderd. De profielenmap op schijf blijft bewaard.",
-            "Server Verwijderen",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Question);
+            "Server Verwijderen");
 
-        if (result == MessageBoxResult.Yes)
+        if (confirmed)
         {
             Tabs.Remove(serverTab);
             Servers.Remove(serverTab.Server);

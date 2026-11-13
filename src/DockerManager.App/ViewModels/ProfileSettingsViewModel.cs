@@ -276,22 +276,19 @@ public partial class ProfileSettingsViewModel : ObservableObject
     {
         if (EditingProfile == null || Profiles.Count <= 1)
         {
-            System.Windows.MessageBox.Show(
+            WpfDialogService.Instance.ShowInfo(
                 "Het actieve profiel kan niet worden verwijderd omdat er minimaal één profiel aanwezig moet zijn.",
-                "Profiel Verwijderen",
-                System.Windows.MessageBoxButton.OK,
-                System.Windows.MessageBoxImage.Information);
+                "Profiel Verwijderen");
             return;
         }
 
         var toDelete = EditingProfile;
-        var confirm = System.Windows.MessageBox.Show(
+        var confirm = WpfDialogService.Instance.Confirm(
             $"Weet je zeker dat je profiel '{toDelete.Name}' wilt verwijderen?\n\nDe actieve containers van dit profiel worden gestopt en het configuratiebestand wordt verwijderd bij het opslaan.",
             "Profiel Verwijderen",
-            System.Windows.MessageBoxButton.YesNo,
-            System.Windows.MessageBoxImage.Warning);
+            isWarning: true);
 
-        if (confirm != System.Windows.MessageBoxResult.Yes) return;
+        if (!confirm) return;
 
         var idx = Profiles.IndexOf(toDelete);
         Profiles.Remove(toDelete);

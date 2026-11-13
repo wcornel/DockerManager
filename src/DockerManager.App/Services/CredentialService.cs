@@ -75,7 +75,10 @@ public class CredentialService : ICredentialService
                 }
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            AppLogger.LogWarning(nameof(CredentialService), "Legacy GitHub token migration failed", ex);
+        }
     }
 
     public void SaveGitHubToken(string token)
@@ -237,7 +240,10 @@ public class CredentialService : ICredentialService
             var encryptedBytes = ProtectedData.Protect(plainBytes, Entropy, DataProtectionScope.CurrentUser);
             File.WriteAllBytes(_registriesFilePath, encryptedBytes);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            AppLogger.LogWarning(nameof(CredentialService), "Legacy GitHub token migration failed", ex);
+        }
     }
 
     private static string NormalizeServerAddress(string address)

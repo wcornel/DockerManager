@@ -49,8 +49,9 @@ public class SettingsService : ISettingsService
                     Settings = loaded;
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                AppLogger.LogWarning(nameof(SettingsService), $"Failed to load settings from '{_settingsFilePath}', falling back to defaults.", ex);
                 Settings = new AppSettings();
             }
         }
@@ -93,6 +94,9 @@ public class SettingsService : ISettingsService
             var json = JsonSerializer.Serialize(Settings, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(_settingsFilePath, json);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            AppLogger.LogError(nameof(SettingsService), ex, $"Failed to save settings to '{_settingsFilePath}'");
+        }
     }
 }

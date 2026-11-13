@@ -228,16 +228,21 @@
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
                                         <TextBox Grid.Column="0" Text="{Binding Key, UpdateSourceTrigger=PropertyChanged}" ToolTip="Key (bijv. DB_HOST)"
                                                  Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4"/>
                                         <TextBlock Grid.Column="1" Text=" = " Foreground="#64748B" VerticalAlignment="Center" Margin="6,0"/>
                                         <TextBox Grid.Column="2" Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" ToolTip="Value"
                                                  Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4"/>
-                                        <Button Grid.Column="3" Content="✕" 
+                                        <Button Grid.Column="3" Content="📋" ToolTip="Kopieer KEY=VALUE"
+                                                Command="{Binding DataContext.CopyEnvVarCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                CommandParameter="{Binding}"
+                                                Margin="6,0,0,0" Padding="8,4" Background="#F1F5F9" Foreground="#475569" BorderBrush="#CBD5E1" BorderThickness="1"/>
+                                        <Button Grid.Column="4" Content="✕" 
                                                 Command="{Binding DataContext.RemoveEnvVarCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                 CommandParameter="{Binding}"
-                                                Margin="6,0,0,0" Padding="8,4" Background="#FEF2F2" Foreground="#DC2626" BorderBrush="#FECACA" BorderThickness="1"/>
+                                                Margin="4,0,0,0" Padding="8,4" Background="#FEF2F2" Foreground="#DC2626" BorderBrush="#FECACA" BorderThickness="1"/>
                                     </Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
