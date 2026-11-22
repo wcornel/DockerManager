@@ -391,7 +391,7 @@ public partial class ServiceCardViewModel : ObservableObject, IDisposable
         try
         {
             var progress = new Progress<string>(msg => LogActivity(msg));
-            await _dockerService.StartContainerAsync(Service, _profileName, progress, _profile?.Registry);
+            await _dockerService.StartContainerAsync(Service, _profileName, progress, _profile?.Registry, _profile?.GetEffectiveVolumesSubfolder());
             await RefreshStatusAsync(force: true);
             LogActivity("Container succesvol gestart.");
         }
@@ -436,7 +436,7 @@ public partial class ServiceCardViewModel : ObservableObject, IDisposable
         try
         {
             var progress = new Progress<string>(msg => LogActivity(msg));
-            await _dockerService.RestartContainerAsync(Service, _profileName, progress, _profile?.Registry);
+            await _dockerService.RestartContainerAsync(Service, _profileName, progress, _profile?.Registry, _profile?.GetEffectiveVolumesSubfolder());
             await RefreshStatusAsync(force: true);
             LogActivity("Container herstart.");
         }
@@ -459,7 +459,7 @@ public partial class ServiceCardViewModel : ObservableObject, IDisposable
         try
         {
             var progress = new Progress<string>(msg => LogActivity(msg));
-            var updateResult = await _dockerService.SafeUpdateContainerAsync(Service, _profileName, progress, _profile?.Registry);
+            var updateResult = await _dockerService.SafeUpdateContainerAsync(Service, _profileName, progress, _profile?.Registry, _profile?.GetEffectiveVolumesSubfolder());
             Service.LastUpdatedUtc = DateTime.UtcNow;
             HasUpdateAvailable = false;
             OnPropertyChanged(nameof(LastUpdatedText));

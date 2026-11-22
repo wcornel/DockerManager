@@ -1,3 +1,4 @@
+using System.Formats.Tar;
 using System.IO;
 using System.IO.Compression;
 using System.Text.Json;
@@ -72,43 +73,70 @@ public class BackupService : IBackupService
             }
 
             var filesToBackup = new List<(string sourcePath, string entryPath)>();
+            var dockerArchiveVolumes = new List<(string containerName, string containerPath, string volFolderSafe)>();
             var baseDirs = GetBaseDirectories();
             var server = _settingsService.Settings.GetActiveServer();
             var isRemote = server.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase);
 
             if (isRemote && _dockerService == null)
             {
-                result.Warnings.Add($"Let op: '{server.Name}' is een externe VPS/server ({server.TcpUrl}). De fysieke bestanden staan op de externe host ({server.GetEffectiveVolumesRootPath()}) en kunnen niet rechtstreeks via het lokale bestandssysteem worden ingepakt. Deze back-up bevat de volledige profiel- en containerconfiguratie.");
+                result.Warnings.Add($"Let op: '{server.Name}' is een externe VPS/server ({server.TcpUrl}) zonder beschikbare Docker API-koppeling. De fysieke bestanden op de externe host kunnen niet worden ingepakt; deze back-up bevat alleen de profielconfiguratie.");
             }
 
-            // Collect all files from volumes
+            // Collect all files from volumes (local bind-mounts or remote/named volumes via Docker API)
             foreach (var service in profile.Services)
             {
                 var containerName = service.GetEffectiveContainerName();
 
                 foreach (var vol in service.Volumes)
                 {
-                    if (string.IsNullOrWhiteSpace(vol.HostPath)) continue;
+                    if (string.IsNullOrWhiteSpace(vol.HostPath) && string.IsNullOrWhiteSpace(vol.ContainerPath)) continue;
+
+                    var volFolderNameRaw = Path.GetFileName((!string.IsNullOrWhiteSpace(vol.HostPath) ? vol.HostPath : vol.ContainerPath).TrimEnd('/', '\\'));
+                    var volFolderSafe = SanitizeEntryName(volFolderNameRaw);
+                    if (string.IsNullOrWhiteSpace(volFolderSafe)) volFolderSafe = "vol";
+
+                    if (isRemote || vol.IsNamedVolume)
+                    {
+                        if (string.IsNullOrWhiteSpace(vol.ContainerPath)) continue;
+
+                        if (_dockerService == null)
+                        {
+                            result.Warnings.Add($"Volume '{vol.ContainerPath}' ({containerName}) is overgeslagen omdat er geen Docker API-service beschikbaar is.");
+                            continue;
+                        }
+
+                        dockerArchiveVolumes.Add((containerName, vol.ContainerPath, volFolderSafe));
+                        continue;
+                    }
 
                     var resolvedPath = ResolveHostPath(vol.HostPath, profile, server, baseDirs);
-                    var volFolderSafe = SanitizeEntryName(Path.GetFileName(vol.HostPath.TrimEnd('/', '\\')));
-                    if (string.IsNullOrWhiteSpace(volFolderSafe)) volFolderSafe = "vol";
 
                     if (File.Exists(resolvedPath))
                     {
+                        if (IsReparsePoint(resolvedPath))
+                        {
+                            result.Warnings.Add($"Symbolische link overgeslagen: {resolvedPath}");
+                            continue;
+                        }
                         var fileName = Path.GetFileName(resolvedPath);
                         filesToBackup.Add((resolvedPath, $"{containerName}/{volFolderSafe}/{fileName}"));
                     }
                     else if (Directory.Exists(resolvedPath))
                     {
-                        var dirFiles = Directory.GetFiles(resolvedPath, "*", SearchOption.AllDirectories);
-                        foreach (var f in dirFiles)
+                        if (IsReparsePoint(resolvedPath))
+                        {
+                            result.Warnings.Add($"Symbolische link of junction overgeslagen: {resolvedPath}");
+                            continue;
+                        }
+
+                        foreach (var f in EnumerateSafeLocalFiles(resolvedPath, result.Warnings))
                         {
                             var rel = Path.GetRelativePath(resolvedPath, f).Replace('\\', '/');
                             filesToBackup.Add((f, $"{containerName}/{volFolderSafe}/{rel}"));
                         }
                     }
-                    else if (!isRemote)
+                    else
                     {
                         result.Warnings.Add($"Pad voor volume '{vol.HostPath}' ({containerName}) niet gevonden op host.");
                     }
@@ -147,6 +175,77 @@ public class BackupService : IBackupService
                     catch (Exception ex)
                     {
                         result.Warnings.Add($"Kon bestand '{src}' niet toevoegen: {ex.Message}");
+                    }
+                }
+
+                // Pack remote / named Docker volumes via Docker Archive TAR stream
+                for (int i = 0; i < dockerArchiveVolumes.Count; i++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var (containerName, containerPath, volFolderSafe) = dockerArchiveVolumes[i];
+                    progress?.Report(($"Docker volume inpakken ({i + 1}/{dockerArchiveVolumes.Count}): {containerName}:{containerPath}", 100.0));
+
+                    try
+                    {
+                        using var tarStream = await _dockerService!.GetContainerArchiveStreamAsync(containerName, containerPath, ct);
+                        if (tarStream == null)
+                        {
+                            result.Warnings.Add($"Kon volume '{containerPath}' van container '{containerName}' niet uitlezen via Docker API (container of pad bestaat mogelijk niet).");
+                            continue;
+                        }
+
+                        var topFolderName = Path.GetFileName(containerPath.TrimEnd('/', '\\'));
+                        using var tarReader = new TarReader(tarStream, leaveOpen: false);
+                        TarEntry? tarEntry;
+                        while ((tarEntry = await tarReader.GetNextEntryAsync(copyData: false, ct)) != null)
+                        {
+                            ct.ThrowIfCancellationRequested();
+
+                            if (tarEntry.EntryType != TarEntryType.RegularFile && tarEntry.EntryType != TarEntryType.V7RegularFile)
+                            {
+                                continue;
+                            }
+
+                            var rawName = (tarEntry.Name ?? string.Empty).Replace('\\', '/').Trim();
+                            while (rawName.StartsWith("./", StringComparison.Ordinal)) rawName = rawName[2..];
+                            rawName = rawName.TrimStart('/');
+
+                            if (!string.IsNullOrEmpty(topFolderName) &&
+                                rawName.StartsWith(topFolderName + "/", StringComparison.Ordinal))
+                            {
+                                rawName = rawName[(topFolderName.Length + 1)..];
+                            }
+
+                            if (!IsSafeArchiveRelativePath(rawName))
+                            {
+                                continue;
+                            }
+
+                            var zipEntryPath = $"{containerName}/{volFolderSafe}/{rawName}";
+                            var zipEntry = archive.CreateEntry(zipEntryPath, CompressionLevel.Optimal);
+                            long entryBytes = 0;
+                            if (tarEntry.DataStream != null)
+                            {
+                                using var entryOut = zipEntry.Open();
+                                entryBytes = tarEntry.Length;
+                                await tarEntry.DataStream.CopyToAsync(entryOut, ct);
+                            }
+                            else
+                            {
+                                using var entryOut = zipEntry.Open();
+                            }
+
+                            result.TotalBytes += entryBytes;
+                            result.FilesCount++;
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        result.Warnings.Add($"Fout bij Docker volume back-up '{containerName}:{containerPath}': {ex.Message}");
                     }
                 }
 
@@ -194,6 +293,10 @@ public class BackupService : IBackupService
 
             result.Success = true;
             return result;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -265,75 +368,163 @@ public class BackupService : IBackupService
                     return result;
                 }
 
+                var isRemote = server.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase);
                 var invalidFileChars = Path.GetInvalidFileNameChars();
                 var total = fileEntries.Count;
                 var current = 0;
                 long totalRestoredBytes = 0;
 
-                foreach (var entry in fileEntries)
+                var dockerRestoreBuckets = new Dictionary<(string ContainerName, string ExtractDir), (FileStream TarStream, TarWriter Writer, int FileCount, long ByteCount)>();
+
+                try
                 {
-                    ct.ThrowIfCancellationRequested();
-                    current++;
-                    var pct = total > 0 ? (double)current / total * 100.0 : 100.0;
-                    progress?.Report(($"Herstellen ({current}/{total}): {entry.Name}", pct));
-
-                    if (entry.FullName.Contains('\\') || entry.FullName.StartsWith('/'))
+                    foreach (var entry in fileEntries)
                     {
-                        result.Warnings.Add($"Onveilig archiefpad overgeslagen: {entry.FullName}");
-                        continue;
-                    }
+                        ct.ThrowIfCancellationRequested();
+                        current++;
+                        var pct = total > 0 ? (double)current / total * 100.0 : 100.0;
+                        progress?.Report(($"Herstellen ({current}/{total}): {entry.Name}", pct));
 
-                    var parts = entry.FullName.Split('/');
-                    if (parts.Length < 3) continue;
-
-                    if (parts.Any(p => string.IsNullOrEmpty(p) || p == "." || p == ".."))
-                    {
-                        result.Warnings.Add($"Onveilig archiefpad overgeslagen: {entry.FullName}");
-                        continue;
-                    }
-
-                    var containerName = parts[0];
-                    var volFolder = parts[1];
-                    var relativePath = string.Join('/', parts.Skip(2));
-
-                    if (containerName.Contains(':') || containerName.IndexOfAny(invalidFileChars) >= 0 ||
-                        volFolder.Contains(':') || volFolder.IndexOfAny(invalidFileChars) >= 0 ||
-                        relativePath.StartsWith('/') || relativePath.StartsWith('\\') ||
-                        relativePath.Contains(':') || Path.IsPathRooted(relativePath))
-                    {
-                        result.Warnings.Add($"Onveilig archiefpad overgeslagen: {entry.FullName}");
-                        continue;
-                    }
-
-                    // Find matching service
-                    var service = activeProfile.Services.FirstOrDefault(s =>
-                        s.GetEffectiveContainerName().Equals(containerName, StringComparison.OrdinalIgnoreCase) ||
-                        s.Id.Equals(containerName, StringComparison.OrdinalIgnoreCase));
-
-                    bool allowRooted = targetProfile != null;
-                    string targetFilePath;
-                    string allowedRoot;
-                    bool isSingleFileTarget = false;
-
-                    if (service != null)
-                    {
-                        var vol = service.Volumes.FirstOrDefault(v =>
-                            SanitizeEntryName(Path.GetFileName(v.HostPath.TrimEnd('/', '\\'))) == volFolder ||
-                            v.HostPath.Contains(volFolder));
-
-                        if (vol != null)
+                        if (entry.FullName.Contains('\\') || entry.FullName.StartsWith('/'))
                         {
-                            var resolvedHostPath = ResolveHostPath(vol.HostPath, activeProfile, server, baseDirs, allowRooted);
-                            if (File.Exists(resolvedHostPath) || (parts.Length == 3 && Path.HasExtension(resolvedHostPath) && !Directory.Exists(resolvedHostPath)))
+                            result.Warnings.Add($"Onveilig archiefpad overgeslagen: {entry.FullName}");
+                            continue;
+                        }
+
+                        var parts = entry.FullName.Split('/');
+                        if (parts.Length < 3) continue;
+
+                        if (parts.Any(p => string.IsNullOrEmpty(p) || p == "." || p == ".."))
+                        {
+                            result.Warnings.Add($"Onveilig archiefpad overgeslagen: {entry.FullName}");
+                            continue;
+                        }
+
+                        var containerName = parts[0];
+                        var volFolder = parts[1];
+                        var relativePath = string.Join('/', parts.Skip(2));
+
+                        if (containerName.Contains(':') || containerName.IndexOfAny(invalidFileChars) >= 0 ||
+                            volFolder.Contains(':') || volFolder.IndexOfAny(invalidFileChars) >= 0 ||
+                            relativePath.StartsWith('/') || relativePath.StartsWith('\\') ||
+                            relativePath.Contains(':') || Path.IsPathRooted(relativePath))
+                        {
+                            result.Warnings.Add($"Onveilig archiefpad overgeslagen: {entry.FullName}");
+                            continue;
+                        }
+
+                        // Find matching service & volume
+                        var service = activeProfile.Services.FirstOrDefault(s =>
+                            s.GetEffectiveContainerName().Equals(containerName, StringComparison.OrdinalIgnoreCase) ||
+                            s.Id.Equals(containerName, StringComparison.OrdinalIgnoreCase));
+
+                        VolumeMapping? vol = null;
+                        if (service != null)
+                        {
+                            vol = service.Volumes.FirstOrDefault(v =>
+                                SanitizeEntryName(Path.GetFileName((!string.IsNullOrWhiteSpace(v.HostPath) ? v.HostPath : v.ContainerPath).TrimEnd('/', '\\'))) == volFolder ||
+                                v.HostPath.Contains(volFolder));
+                        }
+
+                        if (service != null && vol != null && (isRemote || vol.IsNamedVolume))
+                        {
+                            if (_dockerService == null)
                             {
-                                targetFilePath = resolvedHostPath;
-                                allowedRoot = resolvedHostPath;
-                                isSingleFileTarget = true;
+                                result.Warnings.Add($"Volume '{entry.FullName}' kan niet worden hersteld zonder Docker API-service.");
+                                continue;
+                            }
+
+                            var containerTargetPath = string.IsNullOrWhiteSpace(vol.ContainerPath) ? "/" : vol.ContainerPath.Replace('\\', '/').Trim();
+                            var lastSeg = Path.GetFileName(containerTargetPath.TrimEnd('/'));
+                            string extractDir = containerTargetPath;
+                            string tarEntryName = relativePath;
+
+                            if (parts.Length == 3 &&
+                                !string.IsNullOrWhiteSpace(lastSeg) &&
+                                Path.HasExtension(lastSeg) &&
+                                relativePath.Equals(lastSeg, StringComparison.OrdinalIgnoreCase))
+                            {
+                                var slash = containerTargetPath.LastIndexOf('/');
+                                extractDir = slash > 0 ? containerTargetPath[..slash] : "/";
+                                tarEntryName = lastSeg;
+                            }
+
+                            using var tempEntryData = new FileStream(
+                                Path.GetTempFileName(),
+                                FileMode.Create,
+                                FileAccess.ReadWrite,
+                                FileShare.None,
+                                81920,
+                                FileOptions.DeleteOnClose);
+
+                            var (copyOk, copiedBytes, limitErr) = await CopyBoundedAsync(
+                                entry,
+                                tempEntryData,
+                                MaxSingleEntryBytes,
+                                MaxTotalRestoreBytes,
+                                totalRestoredBytes,
+                                ct);
+                            totalRestoredBytes += copiedBytes;
+
+                            if (!copyOk)
+                            {
+                                result.Success = false;
+                                result.ErrorMessage = limitErr;
+                                return result;
+                            }
+
+                            var key = (service.GetEffectiveContainerName(), extractDir);
+                            if (!dockerRestoreBuckets.TryGetValue(key, out var bucket))
+                            {
+                                var tarFs = new FileStream(
+                                    Path.GetTempFileName(),
+                                    FileMode.Create,
+                                    FileAccess.ReadWrite,
+                                    FileShare.None,
+                                    81920,
+                                    FileOptions.DeleteOnClose);
+                                var writer = new TarWriter(tarFs, TarEntryFormat.Pax, leaveOpen: true);
+                                bucket = (tarFs, writer, 0, 0L);
+                            }
+
+                            tempEntryData.Position = 0;
+                            var paxEntry = new PaxTarEntry(TarEntryType.RegularFile, tarEntryName)
+                            {
+                                DataStream = tempEntryData
+                            };
+                            await bucket.Writer.WriteEntryAsync(paxEntry, ct);
+                            dockerRestoreBuckets[key] = (bucket.TarStream, bucket.Writer, bucket.FileCount + 1, bucket.ByteCount + copiedBytes);
+                            continue;
+                        }
+
+                        bool allowRooted = targetProfile != null;
+                        string targetFilePath;
+                        string allowedRoot;
+                        bool isSingleFileTarget = false;
+
+                        if (service != null)
+                        {
+                            if (vol != null)
+                            {
+                                var resolvedHostPath = ResolveHostPath(vol.HostPath, activeProfile, server, baseDirs, allowRooted);
+                                if (File.Exists(resolvedHostPath) || (parts.Length == 3 && Path.HasExtension(resolvedHostPath) && !Directory.Exists(resolvedHostPath)))
+                                {
+                                    targetFilePath = resolvedHostPath;
+                                    allowedRoot = resolvedHostPath;
+                                    isSingleFileTarget = true;
+                                }
+                                else
+                                {
+                                    allowedRoot = resolvedHostPath;
+                                    targetFilePath = Path.Combine(resolvedHostPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
+                                }
                             }
                             else
                             {
-                                allowedRoot = resolvedHostPath;
-                                targetFilePath = Path.Combine(resolvedHostPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
+                                var primaryDir = server.GetEffectiveVolumesRootPath();
+                                var sub = activeProfile.GetEffectiveVolumesSubfolder();
+                                allowedRoot = Path.Combine(primaryDir, sub, containerName);
+                                targetFilePath = Path.Combine(allowedRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
                             }
                         }
                         else
@@ -343,97 +534,116 @@ public class BackupService : IBackupService
                             allowedRoot = Path.Combine(primaryDir, sub, containerName);
                             targetFilePath = Path.Combine(allowedRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
                         }
-                    }
-                    else
-                    {
-                        var primaryDir = server.GetEffectiveVolumesRootPath();
-                        var sub = activeProfile.GetEffectiveVolumesSubfolder();
-                        allowedRoot = Path.Combine(primaryDir, sub, containerName);
-                        targetFilePath = Path.Combine(allowedRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
-                    }
 
-                    var fullTarget = Path.GetFullPath(targetFilePath);
-                    var fullAllowedRoot = Path.GetFullPath(allowedRoot);
-                    var isAllowed = isSingleFileTarget
-                        ? fullTarget.Equals(fullAllowedRoot, StringComparison.OrdinalIgnoreCase)
-                        : fullTarget.StartsWith(EnsureTrailingSeparator(fullAllowedRoot), StringComparison.OrdinalIgnoreCase);
+                        var fullTarget = Path.GetFullPath(targetFilePath);
+                        var fullAllowedRoot = Path.GetFullPath(allowedRoot);
+                        var isAllowed = isSingleFileTarget
+                            ? fullTarget.Equals(fullAllowedRoot, StringComparison.OrdinalIgnoreCase)
+                            : fullTarget.StartsWith(EnsureTrailingSeparator(fullAllowedRoot), StringComparison.OrdinalIgnoreCase);
 
-                    if (!isAllowed)
-                    {
-                        result.Warnings.Add($"Onveilig archiefpad overgeslagen: {entry.FullName}");
-                        continue;
-                    }
-
-                    if (File.Exists(fullTarget) && !overwriteExisting)
-                    {
-                        result.Warnings.Add($"Overgeslagen (bestaat al): {fullTarget}");
-                        continue;
-                    }
-
-                    var parentDir = Path.GetDirectoryName(fullTarget);
-                    if (!string.IsNullOrWhiteSpace(parentDir) && !Directory.Exists(parentDir))
-                    {
-                        Directory.CreateDirectory(parentDir);
-                    }
-
-                    long entryCopiedBytes = 0;
-                    bool limitExceeded = false;
-                    string? limitError = null;
-                    try
-                    {
-                        using (var entryStream = entry.Open())
-                        using (var outStream = new FileStream(fullTarget, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+                        if (!isAllowed)
                         {
-                            var buffer = new byte[81920];
-                            int bytesRead;
-                            while ((bytesRead = await entryStream.ReadAsync(buffer, ct)) > 0)
-                            {
-                                entryCopiedBytes += bytesRead;
-                                totalRestoredBytes += bytesRead;
-
-                                if (entryCopiedBytes > MaxSingleEntryBytes)
-                                {
-                                    limitExceeded = true;
-                                    limitError = $"Archiefonderdeel '{entry.FullName}' overschrijdt de maximale bestandsgrootte ({MaxSingleEntryBytes / 1024 / 1024} MB).";
-                                    break;
-                                }
-
-                                if (totalRestoredBytes > MaxTotalRestoreBytes)
-                                {
-                                    limitExceeded = true;
-                                    limitError = $"Totale herstelomvang overschrijdt het maximum ({MaxTotalRestoreBytes / 1024 / 1024} MB).";
-                                    break;
-                                }
-
-                                await outStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-                            }
+                            result.Warnings.Add($"Onveilig archiefpad overgeslagen: {entry.FullName}");
+                            continue;
                         }
 
-                        if (limitExceeded)
+                        if (File.Exists(fullTarget) && !overwriteExisting)
+                        {
+                            result.Warnings.Add($"Overgeslagen (bestaat al): {fullTarget}");
+                            continue;
+                        }
+
+                        var parentDir = Path.GetDirectoryName(fullTarget);
+                        if (!string.IsNullOrWhiteSpace(parentDir) && !Directory.Exists(parentDir))
+                        {
+                            Directory.CreateDirectory(parentDir);
+                        }
+
+                        long entryCopiedBytes = 0;
+                        try
+                        {
+                            bool limitOk;
+                            string? limitError;
+                            using (var outStream = new FileStream(fullTarget, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+                            {
+                                (limitOk, entryCopiedBytes, limitError) = await CopyBoundedAsync(
+                                    entry,
+                                    outStream,
+                                    MaxSingleEntryBytes,
+                                    MaxTotalRestoreBytes,
+                                    totalRestoredBytes,
+                                    ct);
+                                totalRestoredBytes += entryCopiedBytes;
+                            }
+
+                            if (!limitOk)
+                            {
+                                try { if (File.Exists(fullTarget)) File.Delete(fullTarget); } catch { }
+                                result.Success = false;
+                                result.ErrorMessage = limitError;
+                                return result;
+                            }
+
+                            result.RestoredBytes += entryCopiedBytes;
+                            result.RestoredFilesCount++;
+                        }
+                        catch (OperationCanceledException)
                         {
                             try { if (File.Exists(fullTarget)) File.Delete(fullTarget); } catch { }
-                            result.Success = false;
-                            result.ErrorMessage = limitError;
-                            return result;
+                            throw;
                         }
+                        catch (Exception ex)
+                        {
+                            result.Warnings.Add($"Kon '{fullTarget}' niet herstellen: {ex.Message}");
+                        }
+                    }
 
-                        result.RestoredBytes += entryCopiedBytes;
-                        result.RestoredFilesCount++;
-                    }
-                    catch (OperationCanceledException)
+                    // Upload accumulated TAR archives into remote / named Docker volumes
+                    foreach (var ((cName, extractDir), bucket) in dockerRestoreBuckets)
                     {
-                        try { if (File.Exists(fullTarget)) File.Delete(fullTarget); } catch { }
-                        throw;
+                        ct.ThrowIfCancellationRequested();
+                        try
+                        {
+                            await bucket.Writer.DisposeAsync();
+                            bucket.TarStream.Position = 0;
+
+                            var ok = await _dockerService!.ExtractArchiveToContainerAsync(cName, extractDir, bucket.TarStream, ct);
+                            if (ok)
+                            {
+                                result.RestoredFilesCount += bucket.FileCount;
+                                result.RestoredBytes += bucket.ByteCount;
+                            }
+                            else
+                            {
+                                result.Warnings.Add($"Kon volume niet herstellen in container '{cName}' op pad '{extractDir}'. Controleer of de container bestaat.");
+                            }
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            result.Warnings.Add($"Fout bij terugzetten van Docker volume '{cName}:{extractDir}': {ex.Message}");
+                        }
                     }
-                    catch (Exception ex)
+                }
+                finally
+                {
+                    foreach (var bucket in dockerRestoreBuckets.Values)
                     {
-                        result.Warnings.Add($"Kon '{fullTarget}' niet herstellen: {ex.Message}");
+                        try { await bucket.Writer.DisposeAsync(); } catch { }
+                        try { bucket.TarStream.Dispose(); } catch { }
                     }
                 }
             }
 
             result.Success = true;
             return result;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -460,7 +670,7 @@ public class BackupService : IBackupService
             return hostPath;
         }
 
-        var clean = hostPath.TrimStart('.', '/', '\\');
+        var clean = DockerService.StripRelativePrefix(hostPath).Replace('/', Path.DirectorySeparatorChar);
         if (clean.StartsWith("volumes\\", StringComparison.OrdinalIgnoreCase) || clean.StartsWith("volumes/", StringComparison.OrdinalIgnoreCase))
         {
             clean = clean[8..];
@@ -513,6 +723,112 @@ public class BackupService : IBackupService
         }
 
         return candidateWithProfile;
+    }
+
+    private static async Task<(bool Ok, long CopiedBytes, string? Error)> CopyBoundedAsync(
+        ZipArchiveEntry entry,
+        Stream outStream,
+        long maxSingleEntryBytes,
+        long maxTotalRestoreBytes,
+        long totalRestoredSoFar,
+        CancellationToken ct)
+    {
+        long entryCopied = 0;
+        using var entryStream = entry.Open();
+        var buffer = new byte[81920];
+        int bytesRead;
+        while ((bytesRead = await entryStream.ReadAsync(buffer, ct)) > 0)
+        {
+            entryCopied += bytesRead;
+            if (entryCopied > maxSingleEntryBytes)
+            {
+                return (false, entryCopied, $"Archiefonderdeel '{entry.FullName}' overschrijdt de maximale bestandsgrootte ({maxSingleEntryBytes / 1024 / 1024} MB).");
+            }
+
+            if (totalRestoredSoFar + entryCopied > maxTotalRestoreBytes)
+            {
+                return (false, entryCopied, $"Totale herstelomvang overschrijdt het maximum ({maxTotalRestoreBytes / 1024 / 1024} MB).");
+            }
+
+            await outStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+        }
+
+        return (true, entryCopied, null);
+    }
+
+    private static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static IEnumerable<string> EnumerateSafeLocalFiles(string rootDir, List<string> warnings)
+    {
+        var stack = new Stack<string>();
+        stack.Push(rootDir);
+
+        while (stack.Count > 0)
+        {
+            var currentDir = stack.Pop();
+
+            IEnumerable<string> files;
+            try
+            {
+                files = Directory.EnumerateFiles(currentDir);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException || ex is IOException)
+            {
+                warnings.Add($"Map '{currentDir}' kon niet volledig worden gelezen: {ex.Message}");
+                continue;
+            }
+
+            foreach (var f in files)
+            {
+                if (IsReparsePoint(f))
+                {
+                    warnings.Add($"Symbolische link overgeslagen: {f}");
+                    continue;
+                }
+                yield return f;
+            }
+
+            IEnumerable<string> dirs;
+            try
+            {
+                dirs = Directory.EnumerateDirectories(currentDir);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException || ex is IOException)
+            {
+                warnings.Add($"Submappen van '{currentDir}' konden niet worden gelezen: {ex.Message}");
+                continue;
+            }
+
+            foreach (var d in dirs)
+            {
+                if (IsReparsePoint(d))
+                {
+                    warnings.Add($"Symbolische link of junction overgeslagen: {d}");
+                    continue;
+                }
+                stack.Push(d);
+            }
+        }
+    }
+
+    private static bool IsSafeArchiveRelativePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || Path.IsPathRooted(path) || path.Contains(':'))
+            return false;
+
+        var invalid = Path.GetInvalidFileNameChars();
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length > 0 && segments.All(seg => seg != "." && seg != ".." && seg.IndexOfAny(invalid) < 0);
     }
 
     private static string EnsureTrailingSeparator(string path)

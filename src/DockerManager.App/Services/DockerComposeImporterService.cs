@@ -116,6 +116,24 @@ public class DockerComposeImporterService : IDockerComposeImporterService
                     serviceDef.RestartPolicy = restartObj.ToString()?.Trim() ?? "unless-stopped";
                 }
 
+                // Network mode
+                if (svcProps.TryGetValue("network_mode", out var netModeObj) && netModeObj != null)
+                {
+                    serviceDef.NetworkMode = netModeObj.ToString()?.Trim();
+                }
+
+                // Labels
+                if (svcProps.TryGetValue("labels", out var labelsObj) && labelsObj != null)
+                {
+                    ParseEnvironment(labelsObj, serviceDef.Labels);
+                    if (string.IsNullOrWhiteSpace(serviceDef.CloudflareHostname) &&
+                        serviceDef.Labels.TryGetValue("cloudflare.tunnel.hostname", out var cfHost) &&
+                        !string.IsNullOrWhiteSpace(cfHost))
+                    {
+                        serviceDef.CloudflareHostname = cfHost.Trim();
+                    }
+                }
+
                 // Ports
                 if (svcProps.TryGetValue("ports", out var portsObj) && portsObj is List<object> portsList)
                 {
@@ -135,7 +153,7 @@ public class DockerComposeImporterService : IDockerComposeImporterService
                 {
                     foreach (var v in volsList)
                     {
-                        var parsedVol = ParseVolumeMapping(v, sourceDir);
+                        var parsedVol = ParseVolumeMapping(v, serviceDef.GetEffectiveContainerName(), sourceDir);
                         if (parsedVol != null)
                         {
                             serviceDef.Volumes.Add(parsedVol);
@@ -241,10 +259,49 @@ public class DockerComposeImporterService : IDockerComposeImporterService
         return null;
     }
 
-    private static VolumeMapping? ParseVolumeMapping(object volObj, string? sourceDirectory = null)
+    private static VolumeMapping? ParseVolumeMapping(object volObj, string serviceName, string? sourceDirectory = null)
     {
         if (volObj == null) return null;
 
+        // 1. Long-syntax Compose volume object (e.g. { type: bind, source: ./data, target: /app/data, read_only: true })
+        if (volObj is Dictionary<object, object> volMap)
+        {
+            var volType = GetMapString(volMap, "type")?.Trim().ToLowerInvariant() ?? string.Empty;
+            if (volType == "tmpfs")
+            {
+                return null;
+            }
+
+            var target = GetMapString(volMap, "target")?.Trim();
+            if (string.IsNullOrWhiteSpace(target))
+            {
+                return null;
+            }
+
+            var source = GetMapString(volMap, "source")?.Trim() ?? string.Empty;
+            var readOnlyLong = GetMapBool(volMap, "read_only") ?? false;
+            var isNamedLong = volType == "volume" || (string.IsNullOrEmpty(volType) && !LooksLikeHostPath(source));
+
+            if (isNamedLong && string.IsNullOrWhiteSpace(source))
+            {
+                source = BuildAnonymousVolumeName(serviceName, target);
+            }
+
+            if (!isNamedLong && !string.IsNullOrWhiteSpace(source))
+            {
+                source = ResolveRelativeComposeHostPath(source, sourceDirectory);
+            }
+
+            return new VolumeMapping
+            {
+                HostPath = source,
+                ContainerPath = target,
+                IsNamedVolume = isNamedLong,
+                ReadOnly = readOnlyLong
+            };
+        }
+
+        // 2. Short-syntax Compose volume string
         var str = volObj.ToString()?.Trim();
         if (string.IsNullOrWhiteSpace(str)) return null;
 
@@ -260,28 +317,29 @@ public class DockerComposeImporterService : IDockerComposeImporterService
         {
             host = $"{parts[0]}:{parts[1]}".Trim();
             container = parts[2].Trim();
-            if (parts.Length >= 4 && parts[3].Trim().Equals("ro", StringComparison.OrdinalIgnoreCase))
+            if (parts.Length >= 4)
             {
-                readOnly = true;
+                readOnly = ParseVolumeOptionsHasReadOnly(parts[3]);
             }
         }
         else if (parts.Length >= 2)
         {
             host = parts[0].Trim();
             container = parts[1].Trim();
-            if (parts.Length >= 3 && parts[2].Trim().Equals("ro", StringComparison.OrdinalIgnoreCase))
+            if (parts.Length >= 3)
             {
-                readOnly = true;
+                readOnly = ParseVolumeOptionsHasReadOnly(parts[2]);
             }
         }
         else if (parts.Length == 1)
         {
-            // Anonymous volume e.g. "/var/lib/mysql"
+            // Anonymous volume e.g. "/var/lib/mysql" -> represent as Docker named volume
+            var targetPath = parts[0].Trim();
             return new VolumeMapping
             {
-                HostPath = parts[0].Trim(),
-                ContainerPath = parts[0].Trim(),
-                IsNamedVolume = false
+                HostPath = BuildAnonymousVolumeName(serviceName, targetPath),
+                ContainerPath = targetPath,
+                IsNamedVolume = true
             };
         }
         else
@@ -289,31 +347,11 @@ public class DockerComposeImporterService : IDockerComposeImporterService
             return null;
         }
 
-        var isNamed = !host.StartsWith(".") && !host.StartsWith("/") && !host.Contains('\\') && !host.Contains(':');
+        var isNamed = !LooksLikeHostPath(host);
 
-        // Resolve relative paths if source directory is known
-        if (!isNamed && !string.IsNullOrWhiteSpace(sourceDirectory))
+        if (!isNamed)
         {
-            if (host.StartsWith("./") || host.StartsWith(".\\"))
-            {
-                try
-                {
-                    host = Path.GetFullPath(Path.Combine(sourceDirectory, host));
-                }
-                catch { }
-            }
-            else if (!Path.IsPathRooted(host))
-            {
-                try
-                {
-                    var combined = Path.Combine(sourceDirectory, host);
-                    if (Directory.Exists(combined) || File.Exists(combined))
-                    {
-                        host = Path.GetFullPath(combined);
-                    }
-                }
-                catch { }
-            }
+            host = ResolveRelativeComposeHostPath(host, sourceDirectory);
         }
 
         return new VolumeMapping
@@ -323,6 +361,76 @@ public class DockerComposeImporterService : IDockerComposeImporterService
             IsNamedVolume = isNamed,
             ReadOnly = readOnly
         };
+    }
+
+    private static bool ParseVolumeOptionsHasReadOnly(string? optionsPart)
+    {
+        if (string.IsNullOrWhiteSpace(optionsPart)) return false;
+        return optionsPart
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(o => o.Equals("ro", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool LooksLikeHostPath(string? host) =>
+        !string.IsNullOrWhiteSpace(host) &&
+        (host.StartsWith('.') || host.StartsWith('/') || host.StartsWith('~') || host.Contains('\\') || host.Contains(':'));
+
+    private static string ResolveRelativeComposeHostPath(string host, string? sourceDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(sourceDirectory)) return host;
+
+        if (host.StartsWith("./") || host.StartsWith(".\\"))
+        {
+            try
+            {
+                return Path.GetFullPath(Path.Combine(sourceDirectory, host));
+            }
+            catch { }
+        }
+        else if (!Path.IsPathRooted(host))
+        {
+            try
+            {
+                var combined = Path.Combine(sourceDirectory, host);
+                if (Directory.Exists(combined) || File.Exists(combined))
+                {
+                    return Path.GetFullPath(combined);
+                }
+            }
+            catch { }
+        }
+
+        return host;
+    }
+
+    private static string BuildAnonymousVolumeName(string serviceName, string containerPath)
+    {
+        var safeSvc = string.Concat((serviceName ?? "svc").Select(c => char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : '_')).Trim('_');
+        if (string.IsNullOrWhiteSpace(safeSvc)) safeSvc = "svc";
+
+        var safePath = string.Concat((containerPath ?? "data").Select(c => char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : '_')).Trim('_');
+        if (string.IsNullOrWhiteSpace(safePath)) safePath = "data";
+
+        return $"{safeSvc}_{safePath}";
+    }
+
+    private static string? GetMapString(Dictionary<object, object> map, string key)
+    {
+        foreach (var (k, v) in map)
+        {
+            if (string.Equals(k?.ToString(), key, StringComparison.OrdinalIgnoreCase))
+            {
+                return v?.ToString();
+            }
+        }
+        return null;
+    }
+
+    private static bool? GetMapBool(Dictionary<object, object> map, string key)
+    {
+        var raw = GetMapString(map, key);
+        if (bool.TryParse(raw, out var b)) return b;
+        return null;
     }
 
     private static void ParseEnvironment(object envObj, Dictionary<string, string> targetDict)

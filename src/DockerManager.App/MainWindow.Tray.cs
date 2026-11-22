@@ -9,12 +9,26 @@ namespace DockerManager.App;
 
 public partial class MainWindow
 {
+    private System.Drawing.Font? _trayBoldFont;
+    private System.Drawing.Icon? _ownedTrayIcon;
+    private bool _trayInitialized;
+    private bool _trayDisposed;
+
     private void InitializeTrayIcon()
     {
         try
         {
-            var iconStream = Application.GetResourceStream(new Uri("pack://application:,,,/DockerManager.App;component/app.ico"))?.Stream;
-            var icon = iconStream != null ? new System.Drawing.Icon(iconStream) : System.Drawing.SystemIcons.Application;
+            using var iconStream = Application.GetResourceStream(new Uri("pack://application:,,,/DockerManager.App;component/app.ico"))?.Stream;
+            System.Drawing.Icon icon;
+            if (iconStream != null)
+            {
+                _ownedTrayIcon = new System.Drawing.Icon(iconStream);
+                icon = _ownedTrayIcon;
+            }
+            else
+            {
+                icon = System.Drawing.SystemIcons.Application;
+            }
 
             _notifyIcon = new System.Windows.Forms.NotifyIcon
             {
@@ -26,13 +40,19 @@ public partial class MainWindow
             BuildTrayContextMenu();
             LocalizationService.Instance.LanguageChanged += BuildTrayContextMenu;
             _notifyIcon.DoubleClick += (_, _) => RestoreWindow();
+            _trayInitialized = true;
         }
-        catch { }
+        catch
+        {
+            _trayInitialized = false;
+        }
     }
 
     private void BuildTrayContextMenu()
     {
-        if (_notifyIcon == null) return;
+        if (_notifyIcon == null || _trayDisposed) return;
+
+        var oldMenu = _notifyIcon.ContextMenuStrip;
         var contextMenu = new System.Windows.Forms.ContextMenuStrip();
 
         PopulateTrayContextMenu(contextMenu);
@@ -43,17 +63,26 @@ public partial class MainWindow
         };
 
         _notifyIcon.ContextMenuStrip = contextMenu;
+
+        if (oldMenu != null)
+        {
+            DisposeToolStripItems(oldMenu.Items);
+            oldMenu.Dispose();
+        }
+
         UpdateTrayTooltip();
     }
 
     private void PopulateTrayContextMenu(System.Windows.Forms.ContextMenuStrip contextMenu)
     {
-        if (_notifyIcon == null) return;
+        if (_notifyIcon == null || _trayDisposed) return;
         var loc = LocalizationService.Instance;
-        contextMenu.Items.Clear();
+        DisposeToolStripItems(contextMenu.Items);
+
+        _trayBoldFont ??= new System.Drawing.Font(contextMenu.Font, System.Drawing.FontStyle.Bold);
 
         var openItem = new System.Windows.Forms.ToolStripMenuItem(loc.Get("Tray_Open"), null, (_, _) => RestoreWindow());
-        openItem.Font = new System.Drawing.Font(openItem.Font, System.Drawing.FontStyle.Bold);
+        openItem.Font = _trayBoldFont;
         contextMenu.Items.Add(openItem);
 
         contextMenu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
@@ -63,7 +92,7 @@ public partial class MainWindow
 
         // Server menu item with dropdown
         var serverMenuItem = new System.Windows.Forms.ToolStripMenuItem($"{loc.Get("Tray_Server")}: {currentServerName}");
-        serverMenuItem.Font = new System.Drawing.Font(serverMenuItem.Font, System.Drawing.FontStyle.Bold);
+        serverMenuItem.Font = _trayBoldFont;
 
         foreach (var server in _viewModel.Servers)
         {
@@ -89,7 +118,7 @@ public partial class MainWindow
         var currentProfileName = currentProfile?.Name ?? "(Geen profiel)";
 
         var profileMenuItem = new System.Windows.Forms.ToolStripMenuItem($"{loc.Get("Tray_Profile")}: {currentProfileName}");
-        profileMenuItem.Font = new System.Drawing.Font(profileMenuItem.Font, System.Drawing.FontStyle.Bold);
+        profileMenuItem.Font = _trayBoldFont;
 
         foreach (var profile in _viewModel.Profiles)
         {
@@ -131,20 +160,69 @@ public partial class MainWindow
 
         contextMenu.Items.Add(new System.Windows.Forms.ToolStripMenuItem(loc.Get("Tray_Exit"), null, (_, _) =>
         {
-            if (_notifyIcon != null)
-            {
-                _notifyIcon.Visible = false;
-                _notifyIcon.Dispose();
-            }
+            DisposeTrayIcon();
             Application.Current.Shutdown();
         }));
 
         UpdateTrayTooltip();
     }
 
+    private static void DisposeToolStripItems(System.Windows.Forms.ToolStripItemCollection items)
+    {
+        var copy = new System.Windows.Forms.ToolStripItem[items.Count];
+        items.CopyTo(copy, 0);
+        items.Clear();
+
+        foreach (var item in copy)
+        {
+            if (item is System.Windows.Forms.ToolStripDropDownItem ddItem && ddItem.HasDropDownItems)
+            {
+                DisposeToolStripItems(ddItem.DropDownItems);
+            }
+            try { item.Dispose(); } catch { }
+        }
+    }
+
+    private void DisposeTrayIcon()
+    {
+        if (_trayDisposed) return;
+        _trayDisposed = true;
+
+        LocalizationService.Instance.LanguageChanged -= BuildTrayContextMenu;
+
+        if (_notifyIcon != null)
+        {
+            try
+            {
+                var menu = _notifyIcon.ContextMenuStrip;
+                _notifyIcon.ContextMenuStrip = null;
+                if (menu != null)
+                {
+                    DisposeToolStripItems(menu.Items);
+                    menu.Dispose();
+                }
+            }
+            catch { }
+
+            try
+            {
+                _notifyIcon.Visible = false;
+                _notifyIcon.Dispose();
+            }
+            catch { }
+            _notifyIcon = null;
+        }
+
+        try { _ownedTrayIcon?.Dispose(); } catch { }
+        _ownedTrayIcon = null;
+
+        try { _trayBoldFont?.Dispose(); } catch { }
+        _trayBoldFont = null;
+    }
+
     private void UpdateTrayTooltip()
     {
-        if (_notifyIcon == null) return;
+        if (_notifyIcon == null || _trayDisposed) return;
         var server = _viewModel.SelectedServer?.Name ?? "Docker";
         var profile = _viewModel.SelectedProfile?.Name ?? "Geen profiel";
         var text = $"DockerManager — {server} ({profile})";
@@ -166,11 +244,11 @@ public partial class MainWindow
     protected override void OnStateChanged(EventArgs e)
     {
         base.OnStateChanged(e);
-        if (WindowState == WindowState.Minimized)
+        if (WindowState == WindowState.Minimized && _trayInitialized && _notifyIcon != null && !_trayDisposed)
         {
             Hide();
             var tip = LocalizationService.Instance.Get("Tray_MinimizedTip");
-            _notifyIcon?.ShowBalloonTip(1500, "DockerManager", tip, System.Windows.Forms.ToolTipIcon.Info);
+            _notifyIcon.ShowBalloonTip(1500, "DockerManager", tip, System.Windows.Forms.ToolTipIcon.Info);
         }
     }
 

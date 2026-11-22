@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace DockerManager.App.Services;
@@ -146,6 +147,14 @@ public interface IDotnetAppScannerService
 
 public class DotnetAppScannerService : IDotnetAppScannerService
 {
+    private static readonly JsonDocumentOptions LenientJsonOptions = new()
+    {
+        CommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true
+    };
+
+    private static readonly Regex TfmVersionRegex = new(@"^net(\d+\.\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     public async Task<ScannedDotnetAppInfo> ScanFolderAsync(string folderPath, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
@@ -180,19 +189,17 @@ public class DotnetAppScannerService : IDotnetAppScannerService
                 try
                 {
                     var jsonContent = await File.ReadAllTextAsync(configFile, ct);
-                    using var doc = JsonDocument.Parse(jsonContent);
+                    using var doc = JsonDocument.Parse(jsonContent, LenientJsonOptions);
                     if (doc.RootElement.TryGetProperty("runtimeOptions", out var rt) &&
                         rt.TryGetProperty("tfm", out var tfmElem))
                     {
                         var tfm = tfmElem.GetString() ?? "";
-                        if (tfm.StartsWith("net", StringComparison.OrdinalIgnoreCase))
+                        var match = TfmVersionRegex.Match(tfm.Trim());
+                        if (match.Success)
                         {
-                            var ver = tfm[3..];
-                            if (!string.IsNullOrWhiteSpace(ver))
-                            {
-                                result.DotnetVersion = ver;
-                                result.BaseDockerImage = $"mcr.microsoft.com/dotnet/aspnet:{ver}";
-                            }
+                            var ver = match.Groups[1].Value;
+                            result.DotnetVersion = ver;
+                            result.BaseDockerImage = $"mcr.microsoft.com/dotnet/aspnet:{ver}";
                         }
                     }
                 }
@@ -305,7 +312,7 @@ public class DotnetAppScannerService : IDotnetAppScannerService
                 try
                 {
                     var text = await File.ReadAllTextAsync(jsonFile, ct);
-                    using var doc = JsonDocument.Parse(text);
+                    using var doc = JsonDocument.Parse(text, LenientJsonOptions);
                     FlattenJsonElement(doc.RootElement, string.Empty, scannedKeys);
                 }
                 catch
@@ -373,7 +380,11 @@ public class DotnetAppScannerService : IDotnetAppScannerService
     private static void AddOrUpdateParam(string key, string val, Dictionary<string, ScannedConfigParam> dict)
     {
         if (string.IsNullOrWhiteSpace(key)) return;
-        if (!dict.ContainsKey(key))
+        if (dict.TryGetValue(key, out var existing))
+        {
+            existing.CurrentValue = val;
+        }
+        else
         {
             dict[key] = new ScannedConfigParam(key, val);
         }

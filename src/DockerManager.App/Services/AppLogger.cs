@@ -48,10 +48,17 @@ public static class AppLogger
                     Directory.CreateDirectory(dir);
                 }
 
-                if (File.Exists(path) && new FileInfo(path).Length > MaxLogFileBytes)
+                try
                 {
-                    var archivePath = path + ".1";
-                    File.Move(path, archivePath, overwrite: true);
+                    if (File.Exists(path) && new FileInfo(path).Length > MaxLogFileBytes)
+                    {
+                        var archivePath = path + ".1";
+                        File.Move(path, archivePath, overwrite: true);
+                    }
+                }
+                catch
+                {
+                    // Ignore rotation failure (e.g. archived file temporarily open) so logging can still append
                 }
 
                 File.AppendAllText(path, line + Environment.NewLine);

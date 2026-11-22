@@ -19,6 +19,16 @@ public partial class DockerService
             return diagnosis;
         }
 
+        var loc = LocalizationService.Instance;
+        var activeServer = _settingsService.Settings.GetActiveServer();
+        if (activeServer.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase))
+        {
+            diagnosis.IsDockerDesktopInstalled = false;
+            diagnosis.DiagnosisSummary = loc.Get("Docker_Diag_RemoteUnreachable", activeServer.Name, activeServer.TcpUrl);
+            diagnosis.DetailedTip = loc.Get("Docker_Diag_RemoteUnreachableTip");
+            return diagnosis;
+        }
+
         // 1. Check Docker Desktop installation path
         var commonPaths = new[]
         {
@@ -83,8 +93,12 @@ public partial class DockerService
         }
 
         // Formulate user-friendly explanation & actionable advice
-        var loc = LocalizationService.Instance;
-        if (diagnosis.IsDockerDesktopAutoStartEnabled == false)
+        if (diagnosis.WindowsServiceStartMode == "Disabled")
+        {
+            diagnosis.DiagnosisSummary = loc.Get("Docker_Diag_ServiceDisabled");
+            diagnosis.DetailedTip = loc.Get("Docker_Diag_ServiceDisabledTip");
+        }
+        else if (diagnosis.IsDockerDesktopAutoStartEnabled == false)
         {
             diagnosis.DiagnosisSummary = loc.Get("Docker_Diag_NotAutoStart");
             diagnosis.DetailedTip = loc.Get("Docker_Diag_NotAutoStartTip");

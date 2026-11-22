@@ -21,11 +21,12 @@ public interface IGitHubProfileService
     Task<bool> PushProfileToGitHubAsync(ProfileModel profile, string? subfolder = null, CancellationToken ct = default);
 }
 
-public class GitHubProfileService : IGitHubProfileService
+public class GitHubProfileService : IGitHubProfileService, IDisposable
 {
     private readonly ISettingsService _settingsService;
     private readonly ICredentialService _credentialService;
     private readonly HttpClient _httpClient;
+    private bool _disposed;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -872,5 +873,13 @@ public class GitHubProfileService : IGitHubProfileService
             AutoStopPreviousOnSwitch = false,
             Services = new List<ServiceDefinition>()
         };
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _httpClient.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

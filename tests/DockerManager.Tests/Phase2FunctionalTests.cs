@@ -55,7 +55,7 @@ public class Phase2FunctionalTests
             return Task.FromResult(list);
         }
 
-        public async Task StartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, CancellationToken ct = default)
+        public async Task StartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, string? volumesSubfolder = null, CancellationToken ct = default)
         {
             var name = service.GetEffectiveContainerName();
             StartedOrder.Add(name);
@@ -75,13 +75,13 @@ public class Phase2FunctionalTests
             return Task.CompletedTask;
         }
 
-        public Task RestartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, CancellationToken ct = default)
+        public Task RestartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, string? volumesSubfolder = null, CancellationToken ct = default)
         {
             States[service.GetEffectiveContainerName()] = ContainerState.Running;
             return Task.CompletedTask;
         }
 
-        public Task<ContainerUpdateResult> SafeUpdateContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, CancellationToken ct = default)
+        public Task<ContainerUpdateResult> SafeUpdateContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, string? volumesSubfolder = null, CancellationToken ct = default)
         {
             States[service.GetEffectiveContainerName()] = ContainerState.Running;
             return Task.FromResult(new ContainerUpdateResult(true, "Updated", "old", "new"));

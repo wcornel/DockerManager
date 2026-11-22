@@ -16,14 +16,15 @@ public class DeviceCodeResponse
 
 public interface IGitHubAuthService
 {
-    Task<DeviceCodeResponse?> RequestDeviceCodeAsync(string clientId, string scopes = "repo read:packages read:user", CancellationToken ct = default);
+    Task<DeviceCodeResponse?> RequestDeviceCodeAsync(string clientId, string scopes = "repo read:packages write:packages read:user", CancellationToken ct = default);
     Task<string?> PollForTokenAsync(string clientId, string deviceCode, int intervalSeconds, int expiresInSeconds, IProgress<string>? progress = null, CancellationToken ct = default);
     Task<string?> FetchAuthenticatedUsernameAsync(string token, CancellationToken ct = default);
 }
 
-public class GitHubAuthService : IGitHubAuthService
+public class GitHubAuthService : IGitHubAuthService, IDisposable
 {
     private readonly HttpClient _httpClient;
+    private bool _disposed;
 
     public GitHubAuthService()
     {
@@ -32,17 +33,25 @@ public class GitHubAuthService : IGitHubAuthService
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
-    public async Task<DeviceCodeResponse?> RequestDeviceCodeAsync(string clientId, string scopes = "repo read:packages read:user", CancellationToken ct = default)
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _httpClient.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
+    public async Task<DeviceCodeResponse?> RequestDeviceCodeAsync(string clientId, string scopes = "repo read:packages write:packages read:user", CancellationToken ct = default)
     {
         try
         {
-            var content = new FormUrlEncodedContent(new[]
+            using var content = new FormUrlEncodedContent(new[]
             {
                 new KeyValuePair<string, string>("client_id", clientId),
                 new KeyValuePair<string, string>("scope", scopes)
             });
 
-            var response = await _httpClient.PostAsync("https://github.com/login/device/code", content, ct);
+            using var response = await _httpClient.PostAsync("https://github.com/login/device/code", content, ct);
             if (!response.IsSuccessStatusCode)
             {
                 return null;
@@ -80,14 +89,14 @@ public class GitHubAuthService : IGitHubAuthService
 
             try
             {
-                var content = new FormUrlEncodedContent(new[]
+                using var content = new FormUrlEncodedContent(new[]
                 {
                     new KeyValuePair<string, string>("client_id", clientId),
                     new KeyValuePair<string, string>("device_code", deviceCode),
                     new KeyValuePair<string, string>("grant_type", "urn:ietf:params:oauth:grant-type:device_code")
                 });
 
-                var response = await _httpClient.PostAsync("https://github.com/login/oauth/access_token", content, ct);
+                using var response = await _httpClient.PostAsync("https://github.com/login/oauth/access_token", content, ct);
                 var json = await response.Content.ReadAsStringAsync(ct);
                 using var doc = JsonDocument.Parse(json);
                 var root = doc.RootElement;
@@ -119,7 +128,19 @@ public class GitHubAuthService : IGitHubAuthService
                         progress?.Report("Inloggen geannuleerd in de browser.");
                         return null;
                     }
+                    else
+                    {
+                        var desc = root.TryGetProperty("error_description", out var descElem)
+                            ? descElem.GetString()
+                            : null;
+                        progress?.Report($"GitHub OAuth fout ({errorType}): {desc ?? "Onbekende fout."}");
+                        return null;
+                    }
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -137,7 +158,7 @@ public class GitHubAuthService : IGitHubAuthService
             using var req = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com/user");
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-            var resp = await _httpClient.SendAsync(req, ct);
+            using var resp = await _httpClient.SendAsync(req, ct);
             if (resp.IsSuccessStatusCode)
             {
                 var json = await resp.Content.ReadAsStringAsync(ct);

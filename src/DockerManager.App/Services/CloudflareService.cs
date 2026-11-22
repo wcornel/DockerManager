@@ -78,11 +78,14 @@ public interface ICloudflareService
     bool EnsureCloudflaredServiceInProfile(ProfileModel profile, string? customTunnelToken = null);
 }
 
-public class CloudflareService : ICloudflareService
+public class CloudflareService : ICloudflareService, IDisposable
 {
     private readonly ISettingsService _settingsService;
     private readonly ICredentialService _credentialService;
     private readonly HttpClient _httpClient;
+    private readonly bool _ownsHttpClient;
+    private readonly SemaphoreSlim _tunnelConfigLock = new(1, 1);
+    private bool _disposed;
 
     private const string BaseApiUrl = "https://api.cloudflare.com/client/v4";
 
@@ -90,11 +93,24 @@ public class CloudflareService : ICloudflareService
     {
         _settingsService = settingsService;
         _credentialService = credentialService;
+        _ownsHttpClient = httpClient == null;
         _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
         if (!_httpClient.DefaultRequestHeaders.Contains("User-Agent"))
         {
             _httpClient.DefaultRequestHeaders.Add("User-Agent", "DockerManager-App");
         }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _tunnelConfigLock.Dispose();
+        if (_ownsHttpClient)
+        {
+            try { _httpClient.Dispose(); } catch { }
+        }
+        GC.SuppressFinalize(this);
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string url, string token)
@@ -126,7 +142,7 @@ public class CloudflareService : ICloudflareService
 
             var url = $"{BaseApiUrl}/accounts/{Uri.EscapeDataString(accountId.Trim())}/cfd_tunnel?is_deleted=false&per_page=50";
             using var req = CreateRequest(HttpMethod.Get, url, token);
-            var response = await _httpClient.SendAsync(req, ct);
+            using var response = await _httpClient.SendAsync(req, ct);
             var json = await response.Content.ReadAsStringAsync(ct);
 
             if (!response.IsSuccessStatusCode)
@@ -210,7 +226,7 @@ public class CloudflareService : ICloudflareService
 
             req.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
 
-            var response = await _httpClient.SendAsync(req, ct);
+            using var response = await _httpClient.SendAsync(req, ct);
             var json = await response.Content.ReadAsStringAsync(ct);
 
             if (!response.IsSuccessStatusCode)
@@ -254,7 +270,7 @@ public class CloudflareService : ICloudflareService
                     }
                 };
                 cfgReq.Content = new StringContent(JsonSerializer.Serialize(cfgPayload), Encoding.UTF8, "application/json");
-                await _httpClient.SendAsync(cfgReq, ct);
+                using var cfgResp = await _httpClient.SendAsync(cfgReq, ct);
             }
             catch { }
 
@@ -291,7 +307,7 @@ public class CloudflareService : ICloudflareService
 
             var url = $"{BaseApiUrl}/accounts/{Uri.EscapeDataString(accountId.Trim())}/cfd_tunnel/{Uri.EscapeDataString(tunnelId.Trim())}?cascade=true";
             using var req = CreateRequest(HttpMethod.Delete, url, token);
-            var response = await _httpClient.SendAsync(req, ct);
+            using var response = await _httpClient.SendAsync(req, ct);
             var json = await response.Content.ReadAsStringAsync(ct);
 
             if (!response.IsSuccessStatusCode)
@@ -342,7 +358,7 @@ public class CloudflareService : ICloudflareService
 
             var url = $"{BaseApiUrl}/accounts/{Uri.EscapeDataString(accountId.Trim())}/cfd_tunnel/{Uri.EscapeDataString(tunnelId.Trim())}";
             using var req = CreateRequest(HttpMethod.Get, url, token);
-            var response = await _httpClient.SendAsync(req, ct);
+            using var response = await _httpClient.SendAsync(req, ct);
             var json = await response.Content.ReadAsStringAsync(ct);
 
             if (!response.IsSuccessStatusCode)
@@ -395,7 +411,7 @@ public class CloudflareService : ICloudflareService
 
             var url = $"{BaseApiUrl}/accounts/{Uri.EscapeDataString(accountId.Trim())}/cfd_tunnel/{Uri.EscapeDataString(tunnelId.Trim())}/token";
             using var req = CreateRequest(HttpMethod.Get, url, token);
-            var response = await _httpClient.SendAsync(req, ct);
+            using var response = await _httpClient.SendAsync(req, ct);
             if (!response.IsSuccessStatusCode) return null;
 
             var json = await response.Content.ReadAsStringAsync(ct);
@@ -412,12 +428,14 @@ public class CloudflareService : ICloudflareService
 
     public async Task<string?> GetZoneIdAsync(string domain, string token, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(domain)) return null;
+
         try
         {
             var cleanDomain = domain.Trim().ToLowerInvariant();
             var url = $"{BaseApiUrl}/zones?name={Uri.EscapeDataString(cleanDomain)}";
             using var req = CreateRequest(HttpMethod.Get, url, token);
-            var response = await _httpClient.SendAsync(req, ct);
+            using var response = await _httpClient.SendAsync(req, ct);
             if (!response.IsSuccessStatusCode) return null;
 
             var json = await response.Content.ReadAsStringAsync(ct);
@@ -483,94 +501,100 @@ public class CloudflareService : ICloudflareService
 
         try
         {
-            // 1. Update Ingress configuration in Cloudflare Tunnel
-            var configUrl = $"{BaseApiUrl}/accounts/{Uri.EscapeDataString(accountId)}/cfd_tunnel/{Uri.EscapeDataString(tunnelId)}/configurations";
-            using var getReq = CreateRequest(HttpMethod.Get, configUrl, token);
-            var getResp = await _httpClient.SendAsync(getReq, ct);
-            var getConfigJson = await getResp.Content.ReadAsStringAsync(ct);
-
-            if (!getResp.IsSuccessStatusCode)
+            // 1. Update Ingress configuration in Cloudflare Tunnel (synchronized, preserving non-ingress fields)
+            await _tunnelConfigLock.WaitAsync(ct);
+            try
             {
-                var err = TryExtractErrorMessage(getConfigJson) ?? getResp.ReasonPhrase;
-                return (false, $"Fout bij ophalen tunnelconfiguratie: {err}", null);
-            }
+                var configUrl = $"{BaseApiUrl}/accounts/{Uri.EscapeDataString(accountId)}/cfd_tunnel/{Uri.EscapeDataString(tunnelId)}/configurations";
+                using var getReq = CreateRequest(HttpMethod.Get, configUrl, token);
+                using var getResp = await _httpClient.SendAsync(getReq, ct);
+                var getConfigJson = await getResp.Content.ReadAsStringAsync(ct);
 
-            var rootNode = JsonNode.Parse(getConfigJson);
-            var configNode = rootNode?["result"]?["config"];
-            var ingressArray = configNode?["ingress"]?.AsArray();
-
-            if (ingressArray == null)
-            {
-                ingressArray = new JsonArray();
-                if (configNode is JsonObject cfgObj)
+                if (!getResp.IsSuccessStatusCode)
                 {
-                    cfgObj["ingress"] = ingressArray;
+                    var err = TryExtractErrorMessage(getConfigJson) ?? getResp.ReasonPhrase;
+                    return (false, $"Fout bij ophalen tunnelconfiguratie: {err}", null);
                 }
-            }
 
-            // Find if hostname already exists
-            JsonObject? existingRule = null;
-            foreach (var node in ingressArray)
-            {
-                if (node is JsonObject obj &&
-                    obj.TryGetPropertyValue("hostname", out var h) &&
-                    string.Equals(h?.ToString(), fullHostname, StringComparison.OrdinalIgnoreCase))
+                var rootNode = JsonNode.Parse(getConfigJson);
+                var configNode = rootNode?["result"]?["config"];
+                var ingressArray = configNode?["ingress"]?.AsArray();
+
+                if (ingressArray == null)
                 {
-                    existingRule = obj;
-                    break;
+                    ingressArray = new JsonArray();
                 }
-            }
 
-            if (existingRule != null)
-            {
-                existingRule["service"] = serviceUrl;
-            }
-            else
-            {
-                var newRule = new JsonObject
+                // Find if hostname already exists
+                JsonObject? existingRule = null;
+                foreach (var node in ingressArray)
                 {
-                    ["hostname"] = fullHostname,
-                    ["service"] = serviceUrl
-                };
+                    if (node is JsonObject obj &&
+                        obj.TryGetPropertyValue("hostname", out var h) &&
+                        string.Equals(h?.ToString(), fullHostname, StringComparison.OrdinalIgnoreCase))
+                    {
+                        existingRule = obj;
+                        break;
+                    }
+                }
 
-                // Insert before catch-all (which typically has no hostname or service: http_status:404)
-                var lastIndex = ingressArray.Count - 1;
-                if (lastIndex >= 0 && !ingressArray[lastIndex]!.AsObject().ContainsKey("hostname"))
+                if (existingRule != null)
                 {
-                    ingressArray.Insert(lastIndex, newRule);
+                    existingRule["service"] = serviceUrl;
                 }
                 else
                 {
-                    ingressArray.Add(newRule);
+                    var newRule = new JsonObject
+                    {
+                        ["hostname"] = fullHostname,
+                        ["service"] = serviceUrl
+                    };
+
+                    // Insert before catch-all (which typically has no hostname or service: http_status:404)
+                    var lastIndex = ingressArray.Count - 1;
+                    if (lastIndex >= 0 && !ingressArray[lastIndex]!.AsObject().ContainsKey("hostname"))
+                    {
+                        ingressArray.Insert(lastIndex, newRule);
+                    }
+                    else
+                    {
+                        ingressArray.Add(newRule);
+                    }
+                }
+
+                // Ensure catch-all exists at end
+                if (!ingressArray.Any(n => n is JsonObject obj && !obj.ContainsKey("hostname")))
+                {
+                    ingressArray.Add(new JsonObject
+                    {
+                        ["service"] = "http_status:404"
+                    });
+                }
+
+                var updatedConfig = configNode is JsonObject existingCfgObj
+                    ? existingCfgObj.DeepClone().AsObject()
+                    : new JsonObject();
+                updatedConfig["ingress"] = ingressArray.DeepClone();
+
+                var putPayload = new JsonObject
+                {
+                    ["config"] = updatedConfig
+                };
+
+                using var putReq = CreateRequest(HttpMethod.Put, configUrl, token);
+                putReq.Content = new StringContent(putPayload.ToJsonString(), Encoding.UTF8, "application/json");
+                using var putResp = await _httpClient.SendAsync(putReq, ct);
+                var putJson = await putResp.Content.ReadAsStringAsync(ct);
+
+                if (!putResp.IsSuccessStatusCode)
+                {
+                    var err = TryExtractErrorMessage(putJson) ?? putResp.ReasonPhrase;
+                    return (false, $"Fout bij bijwerken Ingress regel: {err}", null);
                 }
             }
-
-            // Ensure catch-all exists at end
-            if (!ingressArray.Any(n => n is JsonObject obj && !obj.ContainsKey("hostname")))
+            finally
             {
-                ingressArray.Add(new JsonObject
-                {
-                    ["service"] = "http_status:404"
-                });
-            }
-
-            var putPayload = new JsonObject
-            {
-                ["config"] = new JsonObject
-                {
-                    ["ingress"] = ingressArray.DeepClone()
-                }
-            };
-
-            using var putReq = CreateRequest(HttpMethod.Put, configUrl, token);
-            putReq.Content = new StringContent(putPayload.ToJsonString(), Encoding.UTF8, "application/json");
-            var putResp = await _httpClient.SendAsync(putReq, ct);
-            var putJson = await putResp.Content.ReadAsStringAsync(ct);
-
-            if (!putResp.IsSuccessStatusCode)
-            {
-                var err = TryExtractErrorMessage(putJson) ?? putResp.ReasonPhrase;
-                return (false, $"Fout bij bijwerken Ingress regel: {err}", null);
+                _tunnelConfigLock.Release();
             }
 
             // 2. Ensure DNS CNAME record exists in Cloudflare Zone
@@ -579,7 +603,7 @@ public class CloudflareService : ICloudflareService
             {
                 var dnsQueryUrl = $"{BaseApiUrl}/zones/{Uri.EscapeDataString(zoneId)}/dns_records?type=CNAME&name={Uri.EscapeDataString(fullHostname)}";
                 using var dnsGetReq = CreateRequest(HttpMethod.Get, dnsQueryUrl, token);
-                var dnsGetResp = await _httpClient.SendAsync(dnsGetReq, ct);
+                using var dnsGetResp = await _httpClient.SendAsync(dnsGetReq, ct);
                 var dnsGetJson = await dnsGetResp.Content.ReadAsStringAsync(ct);
 
                 bool recordExists = false;
@@ -618,7 +642,7 @@ public class CloudflareService : ICloudflareService
 
                     using var dnsPostReq = CreateRequest(HttpMethod.Post, postDnsUrl, token);
                     dnsPostReq.Content = new StringContent(dnsPayload.ToJsonString(), Encoding.UTF8, "application/json");
-                    var dnsPostResp = await _httpClient.SendAsync(dnsPostReq, ct);
+                    using var dnsPostResp = await _httpClient.SendAsync(dnsPostReq, ct);
                     if (!dnsPostResp.IsSuccessStatusCode)
                     {
                         var postErr = await dnsPostResp.Content.ReadAsStringAsync(ct);
@@ -641,7 +665,7 @@ public class CloudflareService : ICloudflareService
 
                     using var dnsPutReq = CreateRequest(HttpMethod.Put, putDnsUrl, token);
                     dnsPutReq.Content = new StringContent(dnsPayload.ToJsonString(), Encoding.UTF8, "application/json");
-                    var dnsPutResp = await _httpClient.SendAsync(dnsPutReq, ct);
+                    using var dnsPutResp = await _httpClient.SendAsync(dnsPutReq, ct);
                     if (!dnsPutResp.IsSuccessStatusCode)
                     {
                         var putErr = await dnsPutResp.Content.ReadAsStringAsync(ct);
@@ -703,123 +727,164 @@ public class CloudflareService : ICloudflareService
 
         bool ingressRemoved = false;
         bool dnsRemoved = false;
+        bool hadApiErrors = false;
         var messages = new List<string>();
 
         // 1. Remove from Tunnel configuration (Ingress)
         try
         {
-            var configUrl = $"{BaseApiUrl}/accounts/{Uri.EscapeDataString(accountId)}/cfd_tunnel/{Uri.EscapeDataString(tunnelId)}/configurations";
-            using var getReq = CreateRequest(HttpMethod.Get, configUrl, token);
-            var getResp = await _httpClient.SendAsync(getReq, ct);
-            if (getResp.IsSuccessStatusCode)
+            await _tunnelConfigLock.WaitAsync(ct);
+            try
             {
-                var getConfigJson = await getResp.Content.ReadAsStringAsync(ct);
-                var rootNode = JsonNode.Parse(getConfigJson);
-                var configNode = rootNode?["result"]?["config"];
-                var ingressArray = configNode?["ingress"]?.AsArray();
-
-                if (ingressArray != null)
+                var configUrl = $"{BaseApiUrl}/accounts/{Uri.EscapeDataString(accountId)}/cfd_tunnel/{Uri.EscapeDataString(tunnelId)}/configurations";
+                using var getReq = CreateRequest(HttpMethod.Get, configUrl, token);
+                using var getResp = await _httpClient.SendAsync(getReq, ct);
+                if (getResp.IsSuccessStatusCode)
                 {
-                    var itemsToRemove = new List<JsonNode>();
-                    foreach (var node in ingressArray)
+                    var getConfigJson = await getResp.Content.ReadAsStringAsync(ct);
+                    var rootNode = JsonNode.Parse(getConfigJson);
+                    var configNode = rootNode?["result"]?["config"];
+                    var ingressArray = configNode?["ingress"]?.AsArray();
+
+                    if (ingressArray != null)
                     {
-                        if (node is JsonObject obj &&
-                            obj.TryGetPropertyValue("hostname", out var h) &&
-                            string.Equals(h?.ToString(), fullHostname, StringComparison.OrdinalIgnoreCase))
+                        var itemsToRemove = new List<JsonNode>();
+                        foreach (var node in ingressArray)
                         {
-                            itemsToRemove.Add(node);
-                        }
-                    }
-
-                    if (itemsToRemove.Count > 0)
-                    {
-                        foreach (var item in itemsToRemove)
-                        {
-                            ingressArray.Remove(item);
-                        }
-
-                        // Ensure catch-all exists at end
-                        if (!ingressArray.Any(n => n is JsonObject obj && !obj.ContainsKey("hostname")))
-                        {
-                            ingressArray.Add(new JsonObject
+                            if (node is JsonObject obj &&
+                                obj.TryGetPropertyValue("hostname", out var h) &&
+                                string.Equals(h?.ToString(), fullHostname, StringComparison.OrdinalIgnoreCase))
                             {
-                                ["service"] = "http_status:404"
-                            });
-                        }
-
-                        var putPayload = new JsonObject
-                        {
-                            ["config"] = new JsonObject
-                            {
-                                ["ingress"] = ingressArray.DeepClone()
+                                itemsToRemove.Add(node);
                             }
-                        };
+                        }
 
-                        using var putReq = CreateRequest(HttpMethod.Put, configUrl, token);
-                        putReq.Content = new StringContent(putPayload.ToJsonString(), Encoding.UTF8, "application/json");
-                        var putResp = await _httpClient.SendAsync(putReq, ct);
-                        if (putResp.IsSuccessStatusCode)
+                        if (itemsToRemove.Count > 0)
                         {
-                            ingressRemoved = true;
-                            messages.Add("tunnel routing");
+                            foreach (var item in itemsToRemove)
+                            {
+                                ingressArray.Remove(item);
+                            }
+
+                            // Ensure catch-all exists at end
+                            if (!ingressArray.Any(n => n is JsonObject obj && !obj.ContainsKey("hostname")))
+                            {
+                                ingressArray.Add(new JsonObject
+                                {
+                                    ["service"] = "http_status:404"
+                                });
+                            }
+
+                            var updatedConfig = configNode is JsonObject existingCfgObj
+                                ? existingCfgObj.DeepClone().AsObject()
+                                : new JsonObject();
+                            updatedConfig["ingress"] = ingressArray.DeepClone();
+
+                            var putPayload = new JsonObject
+                            {
+                                ["config"] = updatedConfig
+                            };
+
+                            using var putReq = CreateRequest(HttpMethod.Put, configUrl, token);
+                            putReq.Content = new StringContent(putPayload.ToJsonString(), Encoding.UTF8, "application/json");
+                            using var putResp = await _httpClient.SendAsync(putReq, ct);
+                            if (putResp.IsSuccessStatusCode)
+                            {
+                                ingressRemoved = true;
+                                messages.Add("tunnel routing");
+                            }
+                            else
+                            {
+                                hadApiErrors = true;
+                                messages.Add($"tunnel PUT: HTTP {(int)putResp.StatusCode}");
+                            }
                         }
                     }
                 }
+                else
+                {
+                    hadApiErrors = true;
+                    messages.Add($"tunnel GET: HTTP {(int)getResp.StatusCode}");
+                }
+            }
+            finally
+            {
+                _tunnelConfigLock.Release();
             }
         }
         catch (Exception ex)
         {
+            hadApiErrors = true;
             messages.Add($"tunnel: {ex.Message}");
         }
 
-        // 2. Delete DNS CNAME record from Zone
-        try
+        // 2. Delete DNS CNAME record from Zone (only if domain is known)
+        if (!string.IsNullOrWhiteSpace(domain))
         {
-            var zoneId = await GetZoneIdAsync(domain, token, ct);
-            if (!string.IsNullOrWhiteSpace(zoneId))
+            try
             {
-                var dnsQueryUrl = $"{BaseApiUrl}/zones/{Uri.EscapeDataString(zoneId)}/dns_records?type=CNAME&name={Uri.EscapeDataString(fullHostname)}";
-                using var dnsGetReq = CreateRequest(HttpMethod.Get, dnsQueryUrl, token);
-                var dnsGetResp = await _httpClient.SendAsync(dnsGetReq, ct);
-                if (dnsGetResp.IsSuccessStatusCode)
+                var zoneId = await GetZoneIdAsync(domain, token, ct);
+                if (!string.IsNullOrWhiteSpace(zoneId))
                 {
-                    var dnsGetJson = await dnsGetResp.Content.ReadAsStringAsync(ct);
-                    using var dnsDoc = JsonDocument.Parse(dnsGetJson);
-                    if (dnsDoc.RootElement.TryGetProperty("result", out var arr) && arr.ValueKind == JsonValueKind.Array && arr.GetArrayLength() > 0)
+                    var dnsQueryUrl = $"{BaseApiUrl}/zones/{Uri.EscapeDataString(zoneId)}/dns_records?type=CNAME&name={Uri.EscapeDataString(fullHostname)}";
+                    using var dnsGetReq = CreateRequest(HttpMethod.Get, dnsQueryUrl, token);
+                    using var dnsGetResp = await _httpClient.SendAsync(dnsGetReq, ct);
+                    if (dnsGetResp.IsSuccessStatusCode)
                     {
-                        foreach (var record in arr.EnumerateArray())
+                        var dnsGetJson = await dnsGetResp.Content.ReadAsStringAsync(ct);
+                        using var dnsDoc = JsonDocument.Parse(dnsGetJson);
+                        if (dnsDoc.RootElement.TryGetProperty("result", out var arr) && arr.ValueKind == JsonValueKind.Array && arr.GetArrayLength() > 0)
                         {
-                            if (record.TryGetProperty("id", out var idElem))
+                            foreach (var record in arr.EnumerateArray())
                             {
-                                var recordId = idElem.GetString();
-                                if (!string.IsNullOrWhiteSpace(recordId))
+                                if (record.TryGetProperty("id", out var idElem))
                                 {
-                                    var deleteUrl = $"{BaseApiUrl}/zones/{Uri.EscapeDataString(zoneId)}/dns_records/{Uri.EscapeDataString(recordId)}";
-                                    using var delReq = CreateRequest(HttpMethod.Delete, deleteUrl, token);
-                                    var delResp = await _httpClient.SendAsync(delReq, ct);
-                                    if (delResp.IsSuccessStatusCode)
+                                    var recordId = idElem.GetString();
+                                    if (!string.IsNullOrWhiteSpace(recordId))
                                     {
-                                        dnsRemoved = true;
+                                        var deleteUrl = $"{BaseApiUrl}/zones/{Uri.EscapeDataString(zoneId)}/dns_records/{Uri.EscapeDataString(recordId)}";
+                                        using var delReq = CreateRequest(HttpMethod.Delete, deleteUrl, token);
+                                        using var delResp = await _httpClient.SendAsync(delReq, ct);
+                                        if (delResp.IsSuccessStatusCode)
+                                        {
+                                            dnsRemoved = true;
+                                        }
+                                        else
+                                        {
+                                            hadApiErrors = true;
+                                            messages.Add($"dns DELETE: HTTP {(int)delResp.StatusCode}");
+                                        }
                                     }
                                 }
                             }
+                            if (dnsRemoved)
+                            {
+                                messages.Add("DNS CNAME");
+                            }
                         }
-                        if (dnsRemoved)
-                        {
-                            messages.Add("DNS CNAME");
-                        }
+                    }
+                    else
+                    {
+                        hadApiErrors = true;
+                        messages.Add($"dns GET: HTTP {(int)dnsGetResp.StatusCode}");
                     }
                 }
             }
-        }
-        catch (Exception ex)
-        {
-            messages.Add($"dns: {ex.Message}");
+            catch (Exception ex)
+            {
+                hadApiErrors = true;
+                messages.Add($"dns: {ex.Message}");
+            }
         }
 
         if (ingressRemoved || dnsRemoved)
         {
             return (true, $"🗑️ Cloudflare verwijzing '{fullHostname}' succesvol opgeruimd ({string.Join(", ", messages)}).");
+        }
+
+        if (hadApiErrors)
+        {
+            return (false, $"❌ Fout bij opschonen van Cloudflare verwijzing '{fullHostname}' ({string.Join(", ", messages)}).");
         }
 
         return (true, $"Geen actieve Cloudflare regels gevonden voor '{fullHostname}' om te verwijderen.");

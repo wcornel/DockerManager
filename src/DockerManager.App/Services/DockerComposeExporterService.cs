@@ -54,6 +54,21 @@ public class DockerComposeExporterService : IDockerComposeExporterService
                 svcConfig["network_mode"] = svc.NetworkMode;
             }
 
+            if (!string.IsNullOrWhiteSpace(svc.WorkingDir))
+            {
+                svcConfig["working_dir"] = svc.WorkingDir;
+            }
+
+            if (svc.Labels != null && svc.Labels.Count > 0)
+            {
+                var labelsDict = new Dictionary<string, string>();
+                foreach (var kvp in svc.Labels)
+                {
+                    labelsDict[kvp.Key] = kvp.Value ?? "";
+                }
+                svcConfig["labels"] = labelsDict;
+            }
+
             // Ports
             if (svc.Ports != null && svc.Ports.Count > 0)
             {

@@ -261,7 +261,7 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
                 Status = "active"
             };
             AvailableTunnels.Add(existingTunnel);
-            SelectedTunnel = existingTunnel;
+            _selectedTunnel = existingTunnel;
             CloudflareStatusText = $"Gekoppeld: {existingTunnel.DisplayName}";
         }
 
@@ -526,9 +526,10 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
         {
             var hostType = IsTcpSelected ? "Tcp" : "Pipe";
             var uri = hostType == "Tcp" ? TcpUrl : PipeName;
-            var client = new Docker.DotNet.DockerClientConfiguration(new Uri(uri)).CreateClient();
-            await client.System.PingAsync();
-            var version = await client.System.GetVersionAsync();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            using var client = new Docker.DotNet.DockerClientConfiguration(new Uri(uri)).CreateClient();
+            await client.System.PingAsync(cts.Token);
+            var version = await client.System.GetVersionAsync(cts.Token);
             DockerTestStatus = $"✅ Verbonden! Docker {version.Version} (OS: {version.Os})";
         }
         catch (Exception ex)

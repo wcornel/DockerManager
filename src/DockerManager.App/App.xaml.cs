@@ -12,6 +12,7 @@ public partial class App : System.Windows.Application
     public static IServiceProvider Services { get; private set; } = null!;
 
     private Mutex? _instanceMutex;
+    private bool _ownsMutex;
     private EventWaitHandle? _restoreEvent;
     private const string MutexName = "DockerManager_SingleInstance_Mutex";
     private const string EventName = "DockerManager_RestoreEvent";
@@ -20,22 +21,28 @@ public partial class App : System.Windows.Application
     {
         Velopack.VelopackApp.Build().Run();
 
-        _instanceMutex = new Mutex(true, MutexName, out bool isOnlyInstance);
+        _instanceMutex = new Mutex(true, MutexName, out _ownsMutex);
 
-        if (!isOnlyInstance)
+        if (!_ownsMutex)
         {
             // Another instance is already running! Signal it to restore/show its window and exit immediately.
             try
             {
                 if (EventWaitHandle.TryOpenExisting(EventName, out var existingEvent))
                 {
-                    existingEvent.Set();
+                    using (existingEvent)
+                    {
+                        existingEvent.Set();
+                    }
                 }
             }
             catch (Exception ex)
             {
                 AppLogger.LogWarning(nameof(App), "Failed to signal existing instance to restore", ex);
             }
+
+            try { _instanceMutex.Dispose(); } catch { }
+            _instanceMutex = null;
 
             Shutdown();
             return;
@@ -135,12 +142,48 @@ public partial class App : System.Windows.Application
         try
         {
             _restoreEvent?.Dispose();
-            _instanceMutex?.ReleaseMutex();
-            _instanceMutex?.Dispose();
         }
         catch (Exception ex)
         {
-            AppLogger.LogWarning(nameof(App), "Error releasing single-instance handles on exit", ex);
+            AppLogger.LogWarning(nameof(App), "Error disposing single-instance restore event on exit", ex);
+        }
+        _restoreEvent = null;
+
+        if (_instanceMutex != null)
+        {
+            try
+            {
+                if (_ownsMutex)
+                {
+                    _instanceMutex.ReleaseMutex();
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLogger.LogWarning(nameof(App), "Error releasing single-instance mutex on exit", ex);
+            }
+
+            try
+            {
+                _instanceMutex.Dispose();
+            }
+            catch (Exception ex)
+            {
+                AppLogger.LogWarning(nameof(App), "Error disposing single-instance mutex on exit", ex);
+            }
+            _instanceMutex = null;
+        }
+
+        try
+        {
+            if (Services is IDisposable disposableServices)
+            {
+                disposableServices.Dispose();
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLogger.LogWarning(nameof(App), "Error disposing service provider on exit", ex);
         }
 
         base.OnExit(e);

@@ -15,6 +15,8 @@ public class ScannedPythonAppInfo
     public string StartCommand { get; set; } = "python main.py";
     public int SuggestedPort { get; set; } = 8000;
     public bool HasRequirementsTxt { get; set; }
+    public bool HasPyprojectToml { get; set; }
+    public bool HasPipfile { get; set; }
     public List<ScannedConfigParam> Parameters { get; set; } = new();
 }
 
@@ -52,48 +54,55 @@ public class PythonAppScannerService : IPythonAppScannerService
         try
         {
             var reqPath = Path.Combine(folderPath, "requirements.txt");
-            result.HasRequirementsTxt = File.Exists(reqPath);
+            var pyprojectPath = Path.Combine(folderPath, "pyproject.toml");
+            var pipfilePath = Path.Combine(folderPath, "Pipfile");
 
-            // 1. Detect Entrypoint & Start Command
+            result.HasRequirementsTxt = File.Exists(reqPath);
+            result.HasPyprojectToml = File.Exists(pyprojectPath);
+            result.HasPipfile = File.Exists(pipfilePath);
+
+            var depText = string.Empty;
+            if (result.HasRequirementsTxt) depText += await File.ReadAllTextAsync(reqPath, ct) + "\n";
+            if (result.HasPyprojectToml) depText += await File.ReadAllTextAsync(pyprojectPath, ct) + "\n";
+            if (result.HasPipfile) depText += await File.ReadAllTextAsync(pipfilePath, ct) + "\n";
+            bool hasUvicorn = depText.Contains("uvicorn", StringComparison.OrdinalIgnoreCase);
+
+            // 1. Detect Entrypoint & Start Command (preserving exact case for Linux containers)
             var pyFiles = Directory.GetFiles(folderPath, "*.py", SearchOption.TopDirectoryOnly)
                 .Select(Path.GetFileName)
                 .Where(f => f != null)
                 .Select(f => f!)
                 .ToList();
 
-            if (File.Exists(Path.Combine(folderPath, "manage.py")))
+            var managePy = pyFiles.FirstOrDefault(f => f.Equals("manage.py", StringComparison.OrdinalIgnoreCase));
+            var appPy = pyFiles.FirstOrDefault(f => f.Equals("app.py", StringComparison.OrdinalIgnoreCase));
+            var mainPy = pyFiles.FirstOrDefault(f => f.Equals("main.py", StringComparison.OrdinalIgnoreCase));
+            var serverPy = pyFiles.FirstOrDefault(f => f.Equals("server.py", StringComparison.OrdinalIgnoreCase));
+
+            if (managePy != null)
             {
-                result.StartCommand = "python manage.py runserver 0.0.0.0:8000";
+                result.StartCommand = $"python {managePy} runserver 0.0.0.0:8000";
                 result.SuggestedPort = 8000;
             }
-            else if (pyFiles.Any(f => f.Equals("app.py", StringComparison.OrdinalIgnoreCase)))
+            else if (appPy != null)
             {
-                // Check if FastAPI / Uvicorn is mentioned in requirements
-                if (result.HasRequirementsTxt && (await File.ReadAllTextAsync(reqPath, ct)).Contains("uvicorn", StringComparison.OrdinalIgnoreCase))
-                {
-                    result.StartCommand = "uvicorn app:app --host 0.0.0.0 --port 8000";
-                }
-                else
-                {
-                    result.StartCommand = "python app.py";
-                }
+                var moduleName = Path.GetFileNameWithoutExtension(appPy);
+                result.StartCommand = hasUvicorn
+                    ? $"uvicorn {moduleName}:app --host 0.0.0.0 --port 8000"
+                    : $"python {appPy}";
                 result.SuggestedPort = 8000;
             }
-            else if (pyFiles.Any(f => f.Equals("main.py", StringComparison.OrdinalIgnoreCase)))
+            else if (mainPy != null)
             {
-                if (result.HasRequirementsTxt && (await File.ReadAllTextAsync(reqPath, ct)).Contains("uvicorn", StringComparison.OrdinalIgnoreCase))
-                {
-                    result.StartCommand = "uvicorn main:app --host 0.0.0.0 --port 8000";
-                }
-                else
-                {
-                    result.StartCommand = "python main.py";
-                }
+                var moduleName = Path.GetFileNameWithoutExtension(mainPy);
+                result.StartCommand = hasUvicorn
+                    ? $"uvicorn {moduleName}:app --host 0.0.0.0 --port 8000"
+                    : $"python {mainPy}";
                 result.SuggestedPort = 8000;
             }
-            else if (pyFiles.Any(f => f.Equals("server.py", StringComparison.OrdinalIgnoreCase)))
+            else if (serverPy != null)
             {
-                result.StartCommand = "python server.py";
+                result.StartCommand = $"python {serverPy}";
                 result.SuggestedPort = 8000;
             }
             else if (pyFiles.Count > 0)
@@ -106,10 +115,7 @@ public class PythonAppScannerService : IPythonAppScannerService
             }
 
             // Determine suggested version tag based on primary script timestamp
-            var primaryScript = pyFiles.FirstOrDefault(f => f.Equals("main.py", StringComparison.OrdinalIgnoreCase) || 
-                                                            f.Equals("app.py", StringComparison.OrdinalIgnoreCase) || 
-                                                            f.Equals("manage.py", StringComparison.OrdinalIgnoreCase)) 
-                                ?? pyFiles.FirstOrDefault();
+            var primaryScript = mainPy ?? appPy ?? managePy ?? serverPy ?? pyFiles.FirstOrDefault();
 
             if (!string.IsNullOrWhiteSpace(primaryScript))
             {
@@ -151,13 +157,9 @@ public class PythonAppScannerService : IPythonAppScannerService
                 }
             }
 
-            // 3. Scan all *.py files for os.getenv / os.environ
-            var allPyFiles = Directory.GetFiles(folderPath, "*.py", SearchOption.AllDirectories);
-            foreach (var py in allPyFiles)
+            // 3. Scan *.py files safely (skipping virtualenvs/caches before descending and handling ACL errors)
+            foreach (var py in EnumeratePythonFilesSafely(folderPath, ct))
             {
-                // Skip virtual environments
-                if (py.Contains(".venv") || py.Contains("site-packages") || py.Contains("__pycache__")) continue;
-
                 try
                 {
                     var code = await File.ReadAllTextAsync(py, ct);
@@ -185,6 +187,57 @@ public class PythonAppScannerService : IPythonAppScannerService
                 IsValid = false,
                 ErrorMessage = $"Fout bij analyseren van Python map: {ex.Message}"
             };
+        }
+    }
+
+    private static readonly HashSet<string> SkippedDirectories = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "venv", ".venv", "env", ".env", "__pycache__", "site-packages", ".git", "node_modules", ".mypy_cache", ".pytest_cache"
+    };
+
+    private static IEnumerable<string> EnumeratePythonFilesSafely(string rootFolder, CancellationToken ct)
+    {
+        var stack = new Stack<string>();
+        stack.Push(rootFolder);
+
+        while (stack.Count > 0)
+        {
+            ct.ThrowIfCancellationRequested();
+            var dir = stack.Pop();
+
+            IEnumerable<string> files;
+            try
+            {
+                files = Directory.EnumerateFiles(dir, "*.py");
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException || ex is IOException)
+            {
+                continue;
+            }
+
+            foreach (var f in files)
+            {
+                yield return f;
+            }
+
+            IEnumerable<string> subDirs;
+            try
+            {
+                subDirs = Directory.EnumerateDirectories(dir);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException || ex is IOException)
+            {
+                continue;
+            }
+
+            foreach (var sub in subDirs)
+            {
+                var name = Path.GetFileName(sub);
+                if (!SkippedDirectories.Contains(name))
+                {
+                    stack.Push(sub);
+                }
+            }
         }
     }
 

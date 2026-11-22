@@ -11,7 +11,7 @@ using DockerManager.App.Services;
 
 namespace DockerManager.App.ViewModels;
 
-public partial class MainViewModel : ObservableObject
+public partial class MainViewModel : ObservableObject, IDisposable
 {
     private readonly ISettingsService _settingsService;
     private readonly ICredentialService _credentialService;
@@ -23,6 +23,8 @@ public partial class MainViewModel : ObservableObject
     private bool _suppressServerChangedReload;
     private bool _suppressProfileSwitchPrompt;
     private bool _revertingProfileSelection;
+    private int _isPolling;
+    private bool _disposed;
 
     public Func<string, string, bool>? ConfirmPrompt { get; set; }
 
@@ -162,7 +164,12 @@ public partial class MainViewModel : ObservableObject
         {
             Interval = TimeSpan.FromSeconds(4)
         };
-        _pollTimer.Tick += async (_, _) => await OnPollTimerTickAsync();
+        _pollTimer.Tick += OnPollTimerTick;
+    }
+
+    private async void OnPollTimerTick(object? sender, EventArgs e)
+    {
+        await OnPollTimerTickAsync();
     }
 
     private void OnLanguageChanged()
@@ -531,6 +538,7 @@ public partial class MainViewModel : ObservableObject
         _ = _dockerService.RemoveContainerAsync(card.ContainerName, removeVolumes: false);
         SelectedProfile.Services.Remove(card.Service);
         ServiceCards.Remove(card);
+        card.Dispose();
         _ = SaveCurrentProfileAsync();
         StatusNotification = $"🗑️ Container '{card.Service.DisplayName}' verwijderd uit profiel.";
     }
@@ -573,11 +581,25 @@ public partial class MainViewModel : ObservableObject
 
     private async Task OnPollTimerTickAsync()
     {
-        await CheckDockerStatusAsync();
-        if (IsDockerConnected)
+        if (_disposed) return;
+        if (Interlocked.CompareExchange(ref _isPolling, 1, 0) != 0) return;
+
+        try
         {
-            await RefreshAllCardStatusesAsync();
-            await CheckPeriodicImageUpdatesAsync();
+            await CheckDockerStatusAsync();
+            if (IsDockerConnected && !_disposed)
+            {
+                await RefreshAllCardStatusesAsync();
+                await CheckPeriodicImageUpdatesAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLogger.LogWarning(nameof(MainViewModel), "Background poll tick failed", ex);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _isPolling, 0);
         }
     }
 
@@ -964,5 +986,38 @@ public partial class MainViewModel : ObservableObject
                 StatusNotification = $"🔔 Profiel '{currentProfileName}' is gewijzigd op schijf! Klik op 'Nu Herladen & Toepassen'.";
             });
         }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+
+        _pollTimer.Stop();
+        _pollTimer.Tick -= OnPollTimerTick;
+        LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
+
+        if (_profilesWatcher != null)
+        {
+            try
+            {
+                _profilesWatcher.EnableRaisingEvents = false;
+                _profilesWatcher.Changed -= OnProfileFileWatcherEvent;
+                _profilesWatcher.Created -= OnProfileFileWatcherEvent;
+                _profilesWatcher.Renamed -= OnProfileFileWatcherEvent;
+                _profilesWatcher.Dispose();
+            }
+            catch { }
+            _profilesWatcher = null;
+        }
+
+        foreach (var card in ServiceCards.ToList())
+        {
+            card.Dispose();
+        }
+        ServiceCards.Clear();
+
+        try { _loadProfilesLock.Dispose(); } catch { }
+        GC.SuppressFinalize(this);
     }
 }

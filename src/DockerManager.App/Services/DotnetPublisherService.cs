@@ -34,6 +34,8 @@ public class PublishRequest
     public bool AddToActiveProfile { get; set; } = true;
     public bool EnablePersistentVolume { get; set; } = true;
     public bool EnableAmsterdamTimezone { get; set; } = true;
+    public string? HealthCheckPath { get; set; }
+    public bool EnableMultiArchBuild { get; set; }
 }
 
 public class PublishResult
@@ -54,15 +56,17 @@ public interface IDotnetPublisherService
     bool SaveDockerfileToProjectFolder(string folderPath, string dockerfileContent, AppFrameworkType framework, string fullImageTag, string releaseImageTag, out string? errorMessage);
 }
 
-public class DotnetPublisherService : IDotnetPublisherService
+public class DotnetPublisherService : IDotnetPublisherService, IDisposable
 {
     private readonly ISettingsService _settingsService;
     private readonly ICredentialService _credentialService;
     private readonly HttpClient _httpClient;
+    private bool _disposed;
 
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
     private static readonly Regex DockerTagRegex = new(@"^[a-zA-Z0-9][a-zA-Z0-9._/:@-]{0,255}$", RegexOptions.Compiled);
     private static readonly Regex EnvKeyRegex = new(@"^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
+    private static readonly Regex HealthPathRegex = new(@"^/[A-Za-z0-9._~:/?#\[\]@!\$&'()*+,;=%-]{0,127}$", RegexOptions.Compiled);
 
     public DotnetPublisherService(ISettingsService settingsService, ICredentialService credentialService)
     {
@@ -70,6 +74,14 @@ public class DotnetPublisherService : IDotnetPublisherService
         _credentialService = credentialService;
         _httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "DockerManager-AppPublisher");
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _httpClient.Dispose();
+        GC.SuppressFinalize(this);
     }
 
     private static string StripNewlinesAndValidate(string? value, string fieldName)
@@ -151,7 +163,10 @@ public class DotnetPublisherService : IDotnetPublisherService
                              $")\r\n\r\n" +
                              $"echo.\r\n" +
                              $"echo 🎉 Succesvol gebouwd en gepusht!\r\n" +
-                             $"pause\r\n";
+                             $"pause\r\n" +
+                             $"\r\n" +
+                             $"REM Tip voor multi-arch (linux/amd64 + linux/arm64 voor o.a. Oracle Cloud ARM):\r\n" +
+                             $"REM docker buildx build --platform linux/amd64,linux/arm64 -t \"{validReleaseTag}\" -t \"{validFullTag}\" --push .\r\n";
             File.WriteAllText(batPath, batContent, Utf8NoBom);
 
             return true;
@@ -163,10 +178,27 @@ public class DotnetPublisherService : IDotnetPublisherService
         }
     }
 
+    private static string GetHealthCheckLine(int containerPort, string? healthCheckPath)
+    {
+        if (!string.IsNullOrWhiteSpace(healthCheckPath))
+        {
+            var trimmed = healthCheckPath.Trim();
+            if (!trimmed.StartsWith('/')) trimmed = "/" + trimmed;
+            if (!trimmed.Any(c => char.IsWhiteSpace(c) || char.IsControl(c) || c == '\'' || c == '"' || c == '$' || c == '`' || c == ';' || c == '&' || c == '|' || c == '>' || c == '<') &&
+                HealthPathRegex.IsMatch(trimmed))
+            {
+                return $"HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD curl -f http://localhost:{containerPort}{trimmed} || exit 1";
+            }
+        }
+
+        return $"# HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD curl -f http://localhost:{containerPort}/health || exit 1";
+    }
+
     public string GenerateDockerfile(PublishRequest request)
     {
         var appName = StripNewlinesAndValidate(request.AppName, nameof(request.AppName));
         var baseImage = StripNewlinesAndValidate(request.BaseDockerImage, nameof(request.BaseDockerImage));
+        var isAlpine = baseImage.Contains("alpine", StringComparison.OrdinalIgnoreCase);
         var sb = new StringBuilder();
 
         if (request.Framework == AppFrameworkType.Python)
@@ -176,10 +208,12 @@ public class DotnetPublisherService : IDotnetPublisherService
             sb.AppendLine("WORKDIR /app");
             sb.AppendLine();
 
-            if (request.EnableAmsterdamTimezone)
+            if (request.EnableAmsterdamTimezone || !string.IsNullOrWhiteSpace(request.HealthCheckPath))
             {
                 sb.AppendLine("# Systeempakketten voor Nederlandse tijdzone en healthchecks");
-                sb.AppendLine("RUN apt-get update && apt-get install -y --no-install-recommends curl tzdata && rm -rf /var/lib/apt/lists/*");
+                sb.AppendLine(isAlpine
+                    ? "RUN apk add --no-cache curl tzdata"
+                    : "RUN apt-get update && apt-get install -y --no-install-recommends curl tzdata && rm -rf /var/lib/apt/lists/*");
                 sb.AppendLine();
             }
 
@@ -217,6 +251,7 @@ public class DotnetPublisherService : IDotnetPublisherService
             }
 
             sb.AppendLine($"EXPOSE {request.ContainerPort}");
+            sb.AppendLine(GetHealthCheckLine(request.ContainerPort, request.HealthCheckPath));
 
             // Format CMD as JSON exec-form array
             var startCmd = StripNewlinesAndValidate(request.StartCommand, nameof(request.StartCommand));
@@ -239,10 +274,12 @@ public class DotnetPublisherService : IDotnetPublisherService
             sb.AppendLine("WORKDIR /app");
             sb.AppendLine();
 
-            if (request.EnableAmsterdamTimezone)
+            if (request.EnableAmsterdamTimezone || !string.IsNullOrWhiteSpace(request.HealthCheckPath))
             {
                 sb.AppendLine("# Systeempakketten voor Nederlandse tijdzone en healthchecks");
-                sb.AppendLine("RUN apt-get update && apt-get install -y --no-install-recommends curl tzdata && rm -rf /var/lib/apt/lists/*");
+                sb.AppendLine(isAlpine
+                    ? (request.EnableAmsterdamTimezone ? "RUN apk add --no-cache curl tzdata icu-libs" : "RUN apk add --no-cache curl")
+                    : "RUN apt-get update && apt-get install -y --no-install-recommends curl tzdata && rm -rf /var/lib/apt/lists/*");
                 sb.AppendLine();
             }
 
@@ -273,6 +310,7 @@ public class DotnetPublisherService : IDotnetPublisherService
             }
 
             sb.AppendLine($"EXPOSE {request.ContainerPort}");
+            sb.AppendLine(GetHealthCheckLine(request.ContainerPort, request.HealthCheckPath));
             sb.AppendLine($"ENTRYPOINT {JsonSerializer.Serialize(new[] { "dotnet", entrypointDll })}");
         }
 
@@ -313,7 +351,59 @@ public class DotnetPublisherService : IDotnetPublisherService
 
             var dockerCli = FindDockerCli();
 
-            // 2. Run docker build
+            // 2. Multi-arch buildx + push (optional) vs local docker build + push
+            if (request.EnableMultiArchBuild && pushToRegistry)
+            {
+                progress?.Report($"[1/2] Inloggen bij registry ({reg}) voor multi-arch build...");
+                var cred = _credentialService.GetCredentialForImage(fullImageTag) ?? _credentialService.GetCredentialForImage(reg);
+                if (cred != null && !string.IsNullOrWhiteSpace(cred.Password))
+                {
+                    var user = !string.IsNullOrWhiteSpace(cred.Username) ? cred.Username : "token";
+                    var (loginOk, loginErr) = await RunDockerLoginAsync(dockerCli, reg, user, cred.Password, ct);
+                    if (!loginOk)
+                    {
+                        return new PublishResult
+                        {
+                            Success = false,
+                            ErrorMessage = $"Docker login mislukt voor '{reg}': {loginErr}",
+                            ImageTag = fullImageTag,
+                            ReleaseTag = releaseImageTag,
+                            GeneratedDockerfile = dockerfileContent
+                        };
+                    }
+                }
+
+                progress?.Report($"[2/2] Multi-arch Docker image (amd64 + arm64) bouwen en pushen: '{releaseImageTag}'...");
+                var buildxResult = await RunProcessAsync(
+                    dockerCli,
+                    new[] { "buildx", "build", "--platform", "linux/amd64,linux/arm64", "-t", releaseImageTag, "-t", fullImageTag, "--push", "." },
+                    request.SourceFolderPath,
+                    progress,
+                    ct);
+
+                if (!buildxResult.Success)
+                {
+                    return new PublishResult
+                    {
+                        Success = false,
+                        ErrorMessage = buildxResult.Error,
+                        ImageTag = fullImageTag,
+                        ReleaseTag = releaseImageTag,
+                        GeneratedDockerfile = dockerfileContent
+                    };
+                }
+
+                progress?.Report($"✅ Multi-arch image succesvol geüpload naar registry {reg}!");
+                return new PublishResult
+                {
+                    Success = true,
+                    ImageTag = fullImageTag,
+                    ReleaseTag = releaseImageTag,
+                    GeneratedDockerfile = dockerfileContent
+                };
+            }
+
+            // Local single-arch build
             progress?.Report($"[1/{(pushToRegistry ? 2 : 1)}] Docker image lokaal bouwen: '{releaseImageTag}' & latest...");
             var buildResult = await RunProcessAsync(dockerCli, new[] { "build", "-t", releaseImageTag, "-t", fullImageTag, "." }, request.SourceFolderPath, progress, ct);
 
@@ -668,11 +758,11 @@ public class DotnetPublisherService : IDotnetPublisherService
 
     private async Task EnsureRepositoryExistsAsync(string owner, string repo, string token, IProgress<string>? progress, CancellationToken ct)
     {
-        var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{owner}/{repo}");
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{owner}/{repo}");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
 
-        var response = await _httpClient.SendAsync(request, ct);
+        using var response = await _httpClient.SendAsync(request, ct);
         if (response.IsSuccessStatusCode)
         {
             return;
@@ -681,7 +771,7 @@ public class DotnetPublisherService : IDotnetPublisherService
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             progress?.Report($"Repository '{owner}/{repo}' bestaat nog niet. Automatisch aanmaken op GitHub...");
-            var createReq = new HttpRequestMessage(HttpMethod.Post, "https://api.github.com/user/repos");
+            using var createReq = new HttpRequestMessage(HttpMethod.Post, "https://api.github.com/user/repos");
             createReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             createReq.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
 
@@ -694,7 +784,7 @@ public class DotnetPublisherService : IDotnetPublisherService
             };
             createReq.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
 
-            var createResp = await _httpClient.SendAsync(createReq, ct);
+            using var createResp = await _httpClient.SendAsync(createReq, ct);
             if (!createResp.IsSuccessStatusCode)
             {
                 var err = await createResp.Content.ReadAsStringAsync(ct);
@@ -708,11 +798,11 @@ public class DotnetPublisherService : IDotnetPublisherService
     private async Task EnsureWorkflowFileExistsAsync(string owner, string repo, string branch, string token, IProgress<string>? progress, CancellationToken ct)
     {
         var path = ".github/workflows/docker-build.yml";
-        var checkReq = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{owner}/{repo}/contents/{path}?ref={branch}");
+        using var checkReq = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{owner}/{repo}/contents/{path}?ref={branch}");
         checkReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         checkReq.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
 
-        var response = await _httpClient.SendAsync(checkReq, ct);
+        using var response = await _httpClient.SendAsync(checkReq, ct);
         if (response.IsSuccessStatusCode)
         {
             return;
@@ -865,11 +955,11 @@ jobs:
     {
         string? sha = null;
 
-        var getReq = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{owner}/{repo}/contents/{path}?ref={branch}");
+        using var getReq = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{owner}/{repo}/contents/{path}?ref={branch}");
         getReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         getReq.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
 
-        var getResp = await _httpClient.SendAsync(getReq, ct);
+        using var getResp = await _httpClient.SendAsync(getReq, ct);
         if (getResp.IsSuccessStatusCode)
         {
             var content = await getResp.Content.ReadAsStringAsync(ct);
@@ -880,7 +970,7 @@ jobs:
             }
         }
 
-        var putReq = new HttpRequestMessage(HttpMethod.Put, $"https://api.github.com/repos/{owner}/{repo}/contents/{path}");
+        using var putReq = new HttpRequestMessage(HttpMethod.Put, $"https://api.github.com/repos/{owner}/{repo}/contents/{path}");
         putReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         putReq.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
 
@@ -897,7 +987,7 @@ jobs:
         }
 
         putReq.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-        var putResp = await _httpClient.SendAsync(putReq, ct);
+        using var putResp = await _httpClient.SendAsync(putReq, ct);
 
         if (!putResp.IsSuccessStatusCode)
         {

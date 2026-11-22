@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net.Http;
 using System.Text;
 using Docker.DotNet;
 using Docker.DotNet.Models;
@@ -38,10 +39,10 @@ public interface IDockerService
     Task<bool> TryLaunchDockerDesktopAsync();
     Task<ContainerRuntimeInfo> GetContainerInfoAsync(string containerName, CancellationToken ct = default);
     Task<List<ContainerRuntimeInfo>> GetAllContainersAsync(CancellationToken ct = default);
-    Task StartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, CancellationToken ct = default);
+    Task StartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, string? volumesSubfolder = null, CancellationToken ct = default);
     Task StopContainerAsync(string containerName, CancellationToken ct = default);
-    Task RestartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, CancellationToken ct = default);
-    Task<ContainerUpdateResult> SafeUpdateContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, CancellationToken ct = default);
+    Task RestartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, string? volumesSubfolder = null, CancellationToken ct = default);
+    Task<ContainerUpdateResult> SafeUpdateContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, string? volumesSubfolder = null, CancellationToken ct = default);
     Task RemoveContainerAsync(string containerName, bool removeVolumes = false, CancellationToken ct = default);
     Task StreamLogsAsync(string containerName, Action<string> onLineReceived, CancellationToken ct = default);
     Task<string?> GetContainerStatsSummaryAsync(string containerName, CancellationToken ct = default);
@@ -54,29 +55,66 @@ public interface IDockerService
     Task<bool> ExtractArchiveToContainerAsync(string containerName, string containerPath, Stream tarStream, CancellationToken ct = default);
 }
 
-public partial class DockerService : IDockerService
+public partial class DockerService : IDockerService, IDisposable
 {
     private readonly ISettingsService _settingsService;
     private readonly ICredentialService _credentialService;
-    private DockerClient? _dockerClient;
-    private string _lastUsedEndpoint = string.Empty;
+    private readonly HttpClient _registryHttpClient;
+    private readonly bool _ownsRegistryHttpClient;
+    private readonly object _clientLock = new();
+    private readonly Dictionary<string, DockerClient> _clients = new(StringComparer.OrdinalIgnoreCase);
+    private bool _disposed;
 
-    public DockerService(ISettingsService settingsService, ICredentialService credentialService)
+    private sealed class SyncProgress<T>(Action<T> onReport) : IProgress<T>
+    {
+        public void Report(T value) => onReport(value);
+    }
+
+    public DockerService(ISettingsService settingsService, ICredentialService credentialService, HttpClient? registryHttpClient = null)
     {
         _settingsService = settingsService;
         _credentialService = credentialService;
+        _ownsRegistryHttpClient = registryHttpClient == null;
+        _registryHttpClient = registryHttpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        if (!_registryHttpClient.DefaultRequestHeaders.Contains("User-Agent"))
+        {
+            _registryHttpClient.DefaultRequestHeaders.Add("User-Agent", "DockerManager-App");
+        }
     }
 
     private DockerClient GetClient()
     {
         var endpoint = _settingsService.Settings.GetEffectiveDockerUri();
-        if (_dockerClient == null || _lastUsedEndpoint != endpoint)
+        lock (_clientLock)
         {
-            _dockerClient?.Dispose();
-            _dockerClient = new DockerClientConfiguration(new Uri(endpoint)).CreateClient();
-            _lastUsedEndpoint = endpoint;
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_clients.TryGetValue(endpoint, out var client))
+            {
+                client = new DockerClientConfiguration(new Uri(endpoint)).CreateClient();
+                _clients[endpoint] = client;
+            }
+            return client;
         }
-        return _dockerClient;
+    }
+
+    public void Dispose()
+    {
+        lock (_clientLock)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            foreach (var client in _clients.Values)
+            {
+                try { client.Dispose(); } catch { }
+            }
+            _clients.Clear();
+        }
+
+        if (_ownsRegistryHttpClient)
+        {
+            try { _registryHttpClient.Dispose(); } catch { }
+        }
+        GC.SuppressFinalize(this);
     }
 
     public async Task<(bool IsConnected, string VersionOrError)> PingDockerAsync(CancellationToken ct = default)
@@ -160,7 +198,7 @@ public partial class DockerService : IDockerService
         }
     }
 
-    public async Task StartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, CancellationToken ct = default)
+    public async Task StartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, string? volumesSubfolder = null, CancellationToken ct = default)
     {
         var client = GetClient();
         var containerName = service.GetEffectiveContainerName();
@@ -181,7 +219,7 @@ public partial class DockerService : IDockerService
             progress?.Report($"Image '{service.Image}' ophalen van registry...");
             await PullImageAsync(client, service, progress, registryConfig, ct);
             progress?.Report($"Container '{containerName}' aanmaken...");
-            var containerId = await CreateContainerInternalAsync(client, service, profileName, ct);
+            var containerId = await CreateContainerInternalAsync(client, service, profileName, volumesSubfolder, ct);
             progress?.Report($"Container '{containerName}' starten...");
             await client.Containers.StartContainerAsync(containerId, new ContainerStartParameters(), ct);
             progress?.Report($"Container '{containerName}' succesvol gestart.");
@@ -214,11 +252,22 @@ public partial class DockerService : IDockerService
         }
     }
 
-    public async Task RestartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, CancellationToken ct = default)
+    public async Task RestartContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, string? volumesSubfolder = null, CancellationToken ct = default)
     {
         var client = GetClient();
         var containerName = service.GetEffectiveContainerName();
         progress?.Report($"Container '{containerName}' herstarten met actuele configuratie...");
+
+        // Ensure the image exists locally BEFORE stopping and deleting the existing container
+        try
+        {
+            await client.Images.InspectImageAsync(service.Image, ct);
+        }
+        catch (DockerImageNotFoundException)
+        {
+            progress?.Report($"Image '{service.Image}' ontbreekt lokaal; eerst downloaden...");
+            await PullImageAsync(client, service, progress, registryConfig, ct);
+        }
 
         try
         {
@@ -232,12 +281,12 @@ public partial class DockerService : IDockerService
         }
         catch (DockerContainerNotFoundException) { }
 
-        var containerId = await CreateContainerInternalAsync(client, service, profileName, ct);
+        var containerId = await CreateContainerInternalAsync(client, service, profileName, volumesSubfolder, ct);
         await client.Containers.StartContainerAsync(containerId, new ContainerStartParameters(), ct);
         progress?.Report($"Container '{containerName}' succesvol herstart met actuele instellingen.");
     }
 
-    public async Task<ContainerUpdateResult> SafeUpdateContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, CancellationToken ct = default)
+    public async Task<ContainerUpdateResult> SafeUpdateContainerAsync(ServiceDefinition service, string profileName, IProgress<string>? progress = null, ProfileRegistryConfig? registryConfig = null, string? volumesSubfolder = null, CancellationToken ct = default)
     {
         var client = GetClient();
         var containerName = service.GetEffectiveContainerName();
@@ -294,7 +343,7 @@ public partial class DockerService : IDockerService
 
         // Step 4: Re-create container with identical settings
         progress?.Report($"Nieuwe container '{containerName}' aanmaken...");
-        var containerId = await CreateContainerInternalAsync(client, service, profileName, ct);
+        var containerId = await CreateContainerInternalAsync(client, service, profileName, volumesSubfolder, ct);
 
         // Step 5: Start container
         progress?.Report($"Container '{containerName}' starten...");
@@ -327,6 +376,9 @@ public partial class DockerService : IDockerService
         try
         {
             var client = GetClient();
+            var inspect = await client.Containers.InspectContainerAsync(containerName, ct);
+            bool isTty = inspect.Config?.Tty == true;
+
             var parameters = new ContainerLogsParameters
             {
                 ShowStdout = true,
@@ -336,23 +388,44 @@ public partial class DockerService : IDockerService
                 Timestamps = true
             };
 
-            using var stream = await client.Containers.GetContainerLogsAsync(containerName, false, parameters, ct);
+            using var stream = await client.Containers.GetContainerLogsAsync(containerName, isTty, parameters, ct);
             var buffer = new byte[4096];
+            var decoder = Encoding.UTF8.GetDecoder();
+            var charBuf = new char[Encoding.UTF8.GetMaxCharCount(buffer.Length) + 1];
+            var lineBuf = new StringBuilder();
 
             while (!ct.IsCancellationRequested)
             {
                 var result = await stream.ReadOutputAsync(buffer, 0, buffer.Length, ct);
-                if (result.EOF) break;
+                if (result.EOF)
+                {
+                    int tailChars = decoder.GetChars(Array.Empty<byte>(), 0, 0, charBuf, 0, flush: true);
+                    if (tailChars > 0)
+                    {
+                        AppendDecodedChunk(lineBuf, charBuf, tailChars, onLineReceived);
+                    }
+                    if (lineBuf.Length > 0)
+                    {
+                        var remaining = lineBuf.ToString().TrimEnd('\r');
+                        if (remaining.Length > 0)
+                        {
+                            onLineReceived(remaining);
+                        }
+                        lineBuf.Clear();
+                    }
+                    break;
+                }
+
                 if (result.Count > 0)
                 {
-                    var text = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-                    foreach (var line in lines)
-                    {
-                        onLineReceived(line.TrimEnd('\r'));
-                    }
+                    int charCount = decoder.GetChars(buffer, 0, result.Count, charBuf, 0, flush: false);
+                    AppendDecodedChunk(lineBuf, charBuf, charCount, onLineReceived);
                 }
             }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (DockerContainerNotFoundException)
         {
@@ -365,7 +438,28 @@ public partial class DockerService : IDockerService
         }
     }
 
-    private async Task<string> CreateContainerInternalAsync(DockerClient client, ServiceDefinition service, string profileName, CancellationToken ct)
+    private static void AppendDecodedChunk(StringBuilder lineBuf, char[] charBuf, int charCount, Action<string> onLineReceived)
+    {
+        for (int i = 0; i < charCount; i++)
+        {
+            char c = charBuf[i];
+            if (c == '\n')
+            {
+                var line = lineBuf.ToString().TrimEnd('\r');
+                if (line.Length > 0)
+                {
+                    onLineReceived(line);
+                }
+                lineBuf.Clear();
+            }
+            else
+            {
+                lineBuf.Append(c);
+            }
+        }
+    }
+
+    private async Task<string> CreateContainerInternalAsync(DockerClient client, ServiceDefinition service, string profileName, string? volumesSubfolder, CancellationToken ct)
     {
         var containerName = service.GetEffectiveContainerName();
 
@@ -391,7 +485,7 @@ public partial class DockerService : IDockerService
         var binds = new List<string>();
         foreach (var v in service.Volumes)
         {
-            var resolvedHost = ResolveVolumeHostPath(v, profileName, containerName);
+            var resolvedHost = ResolveVolumeHostPath(v, profileName, containerName, volumesSubfolder);
             binds.Add($"{resolvedHost}:{v.ContainerPath}" + (v.ReadOnly ? ":ro" : ""));
         }
 
@@ -503,6 +597,16 @@ public partial class DockerService : IDockerService
         return networkName;
     }
 
+    internal static string StripRelativePrefix(string? path)
+    {
+        var p = (path ?? string.Empty).Trim().Replace('\\', '/');
+        while (p.StartsWith("./", StringComparison.Ordinal))
+        {
+            p = p[2..];
+        }
+        return p.TrimStart('/');
+    }
+
     internal string ResolveVolumeHostPath(VolumeMapping volume, string profileName, string containerName, string? profileVolumesSubfolder = null, DockerServerEnvironment? server = null)
     {
         if (volume.IsNamedVolume)
@@ -511,13 +615,34 @@ public partial class DockerService : IDockerService
         }
 
         server ??= _settingsService.Settings.GetActiveServer();
-        var isRemote = (server != null && server.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase)) ||
-                       _settingsService.Settings.DockerHostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase);
+        var isRemote = server != null
+            ? server.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase)
+            : _settingsService.Settings.DockerHostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase);
         var hostPath = volume.HostPath;
 
-        var subfolder = !string.IsNullOrWhiteSpace(profileVolumesSubfolder)
-            ? profileVolumesSubfolder.Trim().TrimStart('/', '\\').Replace('\\', '/')
-            : string.Join("", (profileName ?? "default").Where(char.IsLetterOrDigit)).ToLowerInvariant();
+        string? sanitizedSubfolder = null;
+        if (!string.IsNullOrWhiteSpace(profileVolumesSubfolder))
+        {
+            var trimmedSub = profileVolumesSubfolder.Trim();
+            if (!Path.IsPathRooted(trimmedSub))
+            {
+                var cleanSub = trimmedSub.Replace('\\', '/').Trim('/');
+                var segments = cleanSub.Split('/');
+                var invalidChars = Path.GetInvalidFileNameChars();
+                if (segments.Length > 0 &&
+                    segments.All(seg =>
+                        !string.IsNullOrWhiteSpace(seg) &&
+                        seg != "." &&
+                        seg != ".." &&
+                        !seg.Contains(':') &&
+                        seg.IndexOfAny(invalidChars) < 0))
+                {
+                    sanitizedSubfolder = string.Join('/', segments);
+                }
+            }
+        }
+
+        var subfolder = sanitizedSubfolder ?? string.Join("", (profileName ?? "default").Where(char.IsLetterOrDigit)).ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(subfolder)) subfolder = "default";
 
         if (isRemote)
@@ -529,14 +654,16 @@ public partial class DockerService : IDockerService
             }
 
             var rootPath = server != null ? server.GetEffectiveVolumesRootPath().Replace('\\', '/').TrimEnd('/') : "/var/lib/dockermanager/volumes";
-            var cleanPath = hostPath.TrimStart('.', '/', '\\').Replace('\\', '/');
+            var cleanPath = StripRelativePrefix(hostPath);
 
             if (cleanPath.StartsWith("volumes/", StringComparison.OrdinalIgnoreCase))
             {
                 cleanPath = cleanPath["volumes/".Length..];
             }
 
-            return $"{rootPath}/{subfolder}/{cleanPath}";
+            return string.IsNullOrEmpty(cleanPath)
+                ? $"{rootPath}/{subfolder}"
+                : $"{rootPath}/{subfolder}/{cleanPath}";
         }
 
         string fullHostPath;
@@ -548,14 +675,15 @@ public partial class DockerService : IDockerService
         else
         {
             var rootPath = server != null ? server.GetEffectiveVolumesRootPath() : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DockerManager", "volumes");
-            var cleanPath = hostPath.TrimStart('.', '/', '\\');
+            var cleanPath = StripRelativePrefix(hostPath);
 
-            if (cleanPath.StartsWith("volumes\\", StringComparison.OrdinalIgnoreCase) || cleanPath.StartsWith("volumes/", StringComparison.OrdinalIgnoreCase))
+            if (cleanPath.StartsWith("volumes/", StringComparison.OrdinalIgnoreCase))
             {
-                cleanPath = cleanPath[8..];
+                cleanPath = cleanPath["volumes/".Length..];
             }
 
-            fullHostPath = Path.GetFullPath(Path.Combine(rootPath, subfolder, cleanPath));
+            var windowsRelPath = cleanPath.Replace('/', Path.DirectorySeparatorChar);
+            fullHostPath = Path.GetFullPath(Path.Combine(rootPath, subfolder.Replace('/', Path.DirectorySeparatorChar), windowsRelPath));
         }
 
         try
@@ -591,34 +719,28 @@ public partial class DockerService : IDockerService
 
     public async Task<string?> GetContainerStatsSummaryAsync(string containerName, CancellationToken ct = default)
     {
-        CancellationTokenSource? cts = null;
         try
         {
             var client = GetClient();
-            var tcs = new TaskCompletionSource<ContainerStatsResponse?>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-            cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(TimeSpan.FromSeconds(2));
 
+            ContainerStatsResponse? captured = null;
             int completed = 0;
-            var progress = new Progress<ContainerStatsResponse>(stats =>
+            var progress = new SyncProgress<ContainerStatsResponse>(stats =>
             {
-                try
+                if (Interlocked.Exchange(ref completed, 1) == 0)
                 {
-                    if (Interlocked.Exchange(ref completed, 1) == 0)
+                    captured = stats;
+                    try
                     {
-                        tcs.TrySetResult(stats);
-                        try
+                        if (!cts.IsCancellationRequested)
                         {
-                            if (cts != null && !cts.IsCancellationRequested)
-                            {
-                                cts.Cancel();
-                            }
+                            cts.Cancel();
                         }
-                        catch { }
                     }
+                    catch { }
                 }
-                catch { }
             });
 
             try
@@ -628,24 +750,18 @@ public partial class DockerService : IDockerService
             catch (OperationCanceledException) { }
             catch { }
 
-            // Ensure tcs is completed even if stream aborted or timed out
-            tcs.TrySetResult(null);
-
-            ContainerStatsResponse? s = null;
-            try
-            {
-                s = await tcs.Task;
-            }
-            catch { }
-
-            if (s == null) return null;
+            if (captured == null) return null;
 
             double cpuPercent = 0.0;
-            if (s.CPUStats != null && s.PreCPUStats != null)
+            if (captured.CPUStats?.CPUUsage != null && captured.PreCPUStats?.CPUUsage != null &&
+                captured.CPUStats.CPUUsage.TotalUsage >= captured.PreCPUStats.CPUUsage.TotalUsage &&
+                captured.CPUStats.SystemUsage >= captured.PreCPUStats.SystemUsage)
             {
-                var cpuDelta = (double)(s.CPUStats.CPUUsage.TotalUsage - s.PreCPUStats.CPUUsage.TotalUsage);
-                var systemDelta = (double)(s.CPUStats.SystemUsage - s.PreCPUStats.SystemUsage);
-                double onlineCpus = s.CPUStats.OnlineCPUs > 0 ? (double)s.CPUStats.OnlineCPUs : (double)(s.CPUStats.CPUUsage.PercpuUsage?.Count ?? 1);
+                var cpuDelta = (double)(captured.CPUStats.CPUUsage.TotalUsage - captured.PreCPUStats.CPUUsage.TotalUsage);
+                var systemDelta = (double)(captured.CPUStats.SystemUsage - captured.PreCPUStats.SystemUsage);
+                double onlineCpus = Math.Max(1.0, captured.CPUStats.OnlineCPUs > 0
+                    ? (double)captured.CPUStats.OnlineCPUs
+                    : (double)(captured.CPUStats.CPUUsage.PercpuUsage?.Count ?? 1));
 
                 if (systemDelta > 0.0 && cpuDelta > 0.0)
                 {
@@ -654,9 +770,9 @@ public partial class DockerService : IDockerService
             }
 
             double ramMb = 0.0;
-            if (s.MemoryStats != null)
+            if (captured.MemoryStats != null)
             {
-                ramMb = s.MemoryStats.Usage / (1024.0 * 1024.0);
+                ramMb = captured.MemoryStats.Usage / (1024.0 * 1024.0);
             }
 
             return $"⚡ {cpuPercent:F1}%  |  💾 {ramMb:F0} MB";
@@ -664,16 +780,6 @@ public partial class DockerService : IDockerService
         catch
         {
             return null;
-        }
-        finally
-        {
-            // Safely cancel CTS if not already canceled, but avoid aggressive Dispose that causes ObjectDisposedException
-            // on late-arriving Progress callbacks queued on the ThreadPool.
-            try
-            {
-                cts?.Cancel();
-            }
-            catch { }
         }
     }
 

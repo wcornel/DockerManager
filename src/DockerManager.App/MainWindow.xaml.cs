@@ -144,7 +144,9 @@ public partial class MainWindow : Window
     {
         try
         {
+            if (!_settingsService.Settings.AutoCheckUpdatesOnStart) return;
             await Task.Delay(3000); // Wait 3s after startup
+            if (!_settingsService.Settings.AutoCheckUpdatesOnStart) return;
             var result = await _appUpdateService.CheckForUpdatesAsync();
             if (result.IsUpdateAvailable && result.UpdateInfo != null)
             {
@@ -521,10 +523,7 @@ public partial class MainWindow : Window
     {
         SaveWindowBounds();
         base.OnClosed(e);
-        if (_notifyIcon != null)
-        {
-            _notifyIcon.Visible = false;
-            _notifyIcon.Dispose();
-        }
+        DisposeTrayIcon();
+        _viewModel.Dispose();
     }
 }
