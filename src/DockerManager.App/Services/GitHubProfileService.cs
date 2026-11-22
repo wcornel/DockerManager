@@ -13,7 +13,7 @@ public interface IGitHubProfileService
     List<ProfileModel> LoadProfilesLocally(string? subfolder = null);
     void SaveProfileLocally(ProfileModel profile, string? subfolder = null);
     void DeleteProfileLocally(string profileName, string? subfolder = null);
-    Task<(bool Success, string Message)> TestGitHubConnectionAsync(string? overrideToken = null, CancellationToken ct = default);
+    Task<(bool Success, string Message)> TestGitHubConnectionAsync(string? overrideToken = null, string? overrideOwner = null, string? overrideRepo = null, CancellationToken ct = default);
     Task SaveProfileLocallyAsync(ProfileModel profile, CancellationToken ct = default);
     Task SaveProfileLocallyAsync(ProfileModel profile, string? subfolder, CancellationToken ct = default);
     Task DeleteProfileLocallyAsync(string profileName, string? subfolder = null, CancellationToken ct = default);
@@ -316,19 +316,25 @@ public class GitHubProfileService : IGitHubProfileService
         return Task.CompletedTask;
     }
 
-    public async Task<(bool Success, string Message)> TestGitHubConnectionAsync(string? overrideToken = null, CancellationToken ct = default)
+    public async Task<(bool Success, string Message)> TestGitHubConnectionAsync(
+        string? overrideToken = null,
+        string? overrideOwner = null,
+        string? overrideRepo = null,
+        CancellationToken ct = default)
     {
         try
         {
             var token = overrideToken ?? _credentialService.GetGitHubToken();
             var settings = _settingsService.Settings;
+            var owner = (overrideOwner ?? settings.GitHubRepoOwner)?.Trim() ?? string.Empty;
+            var repo = (overrideRepo ?? settings.GitHubRepoName)?.Trim() ?? string.Empty;
 
-            if (string.IsNullOrWhiteSpace(settings.GitHubRepoOwner) || string.IsNullOrWhiteSpace(settings.GitHubRepoName))
+            if (string.IsNullOrWhiteSpace(owner) || string.IsNullOrWhiteSpace(repo))
             {
                 return (false, "Vul een GitHub eigenaar en repository naam in.");
             }
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{Uri.EscapeDataString(settings.GitHubRepoOwner)}/{Uri.EscapeDataString(settings.GitHubRepoName)}");
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repo)}");
             if (!string.IsNullOrWhiteSpace(token))
             {
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -337,13 +343,13 @@ public class GitHubProfileService : IGitHubProfileService
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(TimeSpan.FromSeconds(6));
 
-            var response = await _httpClient.SendAsync(request, cts.Token);
+            using var response = await _httpClient.SendAsync(request, cts.Token);
             if (response.IsSuccessStatusCode)
             {
                 var content = await response.Content.ReadAsStringAsync(cts.Token);
                 using var doc = JsonDocument.Parse(content);
                 var isPrivate = doc.RootElement.TryGetProperty("private", out var priv) && priv.GetBoolean();
-                return (true, $"Verbinding geslaagd! Repository '{settings.GitHubRepoName}' gevonden ({(isPrivate ? "Private" : "Public")}).");
+                return (true, $"Verbinding geslaagd! Repository '{repo}' gevonden ({(isPrivate ? "Private" : "Public")}).");
             }
             else
             {

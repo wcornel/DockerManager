@@ -30,7 +30,15 @@ public partial class LogViewerViewModel : ObservableObject
     public async Task StartStreamingAsync()
     {
         StopStreaming();
-        _logCts = new CancellationTokenSource();
+        var cts = new CancellationTokenSource();
+        var previous = Interlocked.Exchange(ref _logCts, cts);
+        if (previous != null)
+        {
+            try { previous.Cancel(); } catch (ObjectDisposedException) { }
+            try { previous.Dispose(); } catch (ObjectDisposedException) { }
+        }
+
+        var token = cts.Token;
         IsStreaming = true;
 
         OnLineAppended?.Invoke($"--- Log Console voor container: {_containerName} ---");
@@ -52,8 +60,8 @@ public partial class LogViewerViewModel : ObservableObject
                 await _dockerService.StreamLogsAsync(_containerName, line =>
                 {
                     OnLineAppended?.Invoke(line);
-                }, _logCts.Token);
-            }, _logCts.Token);
+                }, token);
+            }, token);
         }
         catch (OperationCanceledException)
         {
@@ -65,16 +73,23 @@ public partial class LogViewerViewModel : ObservableObject
         }
         finally
         {
-            IsStreaming = false;
+            if (Interlocked.CompareExchange(ref _logCts, null, cts) == cts)
+            {
+                try { cts.Dispose(); } catch (ObjectDisposedException) { }
+                IsStreaming = false;
+            }
         }
     }
 
     [RelayCommand]
     public void StopStreaming()
     {
-        _logCts?.Cancel();
-        _logCts?.Dispose();
-        _logCts = null;
+        var cts = Interlocked.Exchange(ref _logCts, null);
+        if (cts != null)
+        {
+            try { cts.Cancel(); } catch (ObjectDisposedException) { }
+            try { cts.Dispose(); } catch (ObjectDisposedException) { }
+        }
         IsStreaming = false;
     }
 }

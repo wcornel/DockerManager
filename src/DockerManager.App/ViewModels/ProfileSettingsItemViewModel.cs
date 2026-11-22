@@ -255,7 +255,7 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
     {
         if (SelectedCopySource == null) return;
 
-        if (SelectedCopySource.IsGlobalDefaults)
+        if (SelectedCopySource.IsServerDefaults || SelectedCopySource.IsGlobalDefaults)
         {
             var s = _settingsService.Settings;
             RegistryServer = "ghcr.io";
@@ -266,15 +266,22 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
             {
                 RegistryPassword = ghToken;
             }
-            CopyStatusMessage = "✅ Container Registry overgenomen van globale app-instellingen!";
+            CopyStatusMessage = SelectedCopySource.IsServerDefaults
+                ? "✅ Server gebruikt globale GitHub-gegevens; Container Registry overgenomen van globale app-instellingen."
+                : "✅ Container Registry overgenomen van globale app-instellingen!";
         }
-        else if (SelectedCopySource.SourceProfile?.Registry is { } srcReg)
+        else if (SelectedCopySource.SourceProfile?.Registry is { } srcReg &&
+                 (srcReg.HasConfiguration || !string.IsNullOrWhiteSpace(srcReg.Username) || !string.IsNullOrWhiteSpace(srcReg.Password)))
         {
             RegistryServer = !string.IsNullOrWhiteSpace(srcReg.Server) ? srcReg.Server : "ghcr.io";
             RegistryNamespace = srcReg.Namespace ?? string.Empty;
             RegistryUsername = srcReg.Username ?? string.Empty;
             RegistryPassword = srcReg.Password ?? string.Empty;
             CopyStatusMessage = $"✅ Container Registry overgenomen van '{SelectedCopySource.SourceProfile.Name}'!";
+        }
+        else if (SelectedCopySource.SourceProfile != null)
+        {
+            CopyStatusMessage = $"⚠️ Profiel '{SelectedCopySource.SourceProfile.Name}' heeft geen eigen Container Registry configuratie.";
         }
     }
 
@@ -332,9 +339,18 @@ public partial class ProfileSettingsItemViewModel : ObservableObject
         Profile.AutoStopPreviousOnSwitch = AutoStopPreviousOnSwitch;
         Profile.VolumesSubfolder = VolumesSubfolder.Trim();
 
-        // Cloudflare (domain override only; tunnel is inherited dynamically from server)
+        // Cloudflare (domain override only; preserve server/global domain inheritance unless explicitly overridden)
+        var inheritedDomain = !string.IsNullOrWhiteSpace(_parentServerVm?.CloudflareDomain)
+            ? _parentServerVm.CloudflareDomain.Trim()
+            : (!string.IsNullOrWhiteSpace(_parentServer?.CloudflareDomain)
+                ? _parentServer.CloudflareDomain.Trim()
+                : (_settingsService.Settings.CloudflareDomain?.Trim() ?? string.Empty));
+        var trimmedDomain = CloudflareDomain.Trim();
         Profile.Cloudflare ??= new ProfileCloudflareConfig();
-        Profile.Cloudflare.Domain = CloudflareDomain.Trim();
+        Profile.Cloudflare.Domain = (!string.IsNullOrWhiteSpace(inheritedDomain) &&
+            trimmedDomain.Equals(inheritedDomain, StringComparison.OrdinalIgnoreCase))
+            ? string.Empty
+            : trimmedDomain;
         Profile.Cloudflare.TunnelId = string.Empty;
         Profile.Cloudflare.TunnelToken = string.Empty;
         Profile.Cloudflare.AccountId = string.Empty;

@@ -213,7 +213,6 @@ public partial class SettingsViewModel : ObservableObject
         {
             tab.IsActiveServer = (tab == serverTab);
         }
-        _settingsService.Settings.ActiveServerId = serverTab.Server.Id;
     }
 
     private void OnRequestDeleteServer(ServerSettingsTabViewModel serverTab)
@@ -239,7 +238,6 @@ public partial class SettingsViewModel : ObservableObject
                 if (fallback != null)
                 {
                     fallback.IsActiveServer = true;
-                    _settingsService.Settings.ActiveServerId = fallback.Server.Id;
                 }
             }
             SelectedTab = Tabs.OfType<ServerSettingsTabViewModel>().FirstOrDefault() ?? (SettingsTabViewModel)GeneralTab;
@@ -263,17 +261,42 @@ public partial class SettingsViewModel : ObservableObject
 
             var subfolder = string.IsNullOrWhiteSpace(tab.Server.ProfilesSubfolder) ? "local" : tab.Server.ProfilesSubfolder;
 
+            var activeNames = new HashSet<string>(
+                tab.Profiles.Select(p => p.Profile.Name).Where(n => !string.IsNullOrWhiteSpace(n)),
+                StringComparer.OrdinalIgnoreCase);
+
+            var namesToDelete = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var delName in tab.DeletedProfileNames)
+            {
+                if (!string.IsNullOrWhiteSpace(delName) && !activeNames.Contains(delName))
+                {
+                    namesToDelete.Add(delName);
+                }
+            }
+
+            foreach (var pVm in tab.Profiles)
+            {
+                if (!string.IsNullOrWhiteSpace(pVm.OriginalName) &&
+                    !pVm.OriginalName.Equals(pVm.Profile.Name, StringComparison.OrdinalIgnoreCase) &&
+                    !activeNames.Contains(pVm.OriginalName))
+                {
+                    namesToDelete.Add(pVm.OriginalName);
+                }
+            }
+
+            // Delete removed / renamed-away profiles before saving active profiles
+            foreach (var delName in namesToDelete)
+            {
+                _gitHubProfileService.DeleteProfileLocally(delName, subfolder);
+            }
+
             // Save all profiles for this server
             foreach (var pVm in tab.Profiles)
             {
                 _gitHubProfileService.SaveProfileLocally(pVm.Profile, subfolder);
             }
 
-            // Delete removed profiles
-            foreach (var delName in tab.DeletedProfileNames)
-            {
-                _gitHubProfileService.DeleteProfileLocally(delName, subfolder);
-            }
+            tab.DeletedProfileNames.Clear();
         }
 
         _settingsService.Settings.Servers = serverList;
@@ -301,7 +324,7 @@ public partial class SettingsViewModel : ObservableObject
             _settingsService.Settings.CloudflareTunnelToken = activeServer.CloudflareTunnelToken;
         }
 
-        _ = _gitHubProfileService.EnsureSubfoldersAndMigrateAsync(serverList);
+        await _gitHubProfileService.EnsureSubfoldersAndMigrateAsync(serverList);
         _settingsService.Save();
 
         LocalizationService.Instance.SetLanguage(_settingsService.Settings.Language);
@@ -315,6 +338,17 @@ public partial class SettingsViewModel : ObservableObject
     {
         IsSaved = false;
         RequestClose?.Invoke();
+    }
+
+    public void RefreshGitHubAuthStatus()
+    {
+        GeneralTab?.RefreshLoginStatus();
+        if (GeneralTab != null &&
+            string.IsNullOrWhiteSpace(GeneralTab.GitHubRepoOwner) &&
+            !string.IsNullOrWhiteSpace(_settingsService.Settings.LoggedInUsername))
+        {
+            GeneralTab.GitHubRepoOwner = _settingsService.Settings.LoggedInUsername;
+        }
     }
 
     public void LoadFromSettings()

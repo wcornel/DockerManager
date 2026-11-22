@@ -477,6 +477,11 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
     private void AddProfile()
     {
         int counter = Profiles.Count + 1;
+        while (Profiles.Any(p => p.Name.Equals($"Profiel {counter}", StringComparison.OrdinalIgnoreCase)))
+        {
+            counter++;
+        }
+
         var newProfile = new ProfileModel
         {
             Name = $"Profiel {counter}",

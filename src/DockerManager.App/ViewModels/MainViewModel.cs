@@ -19,6 +19,10 @@ public partial class MainViewModel : ObservableObject
     private readonly IDockerService _dockerService;
     private readonly ICloudflareService? _cloudflareService;
     private readonly DispatcherTimer _pollTimer;
+    private readonly SemaphoreSlim _loadProfilesLock = new(1, 1);
+    private bool _suppressServerChangedReload;
+    private bool _suppressProfileSwitchPrompt;
+    private bool _revertingProfileSelection;
 
     public Func<string, string, bool>? ConfirmPrompt { get; set; }
 
@@ -35,6 +39,8 @@ public partial class MainViewModel : ObservableObject
         _settingsService.Settings.DockerPipeName = value.PipeName;
         _settingsService.Settings.DockerTcpUrl = value.TcpUrl;
         _settingsService.Save();
+
+        if (_suppressServerChangedReload) return;
 
         CheckDockerStatusAsync().SafeFireAndForget(nameof(CheckDockerStatusAsync));
         LoadProfilesAsync(forceRefresh: false).SafeFireAndForget(nameof(LoadProfilesAsync));
@@ -176,15 +182,23 @@ public partial class MainViewModel : ObservableObject
 
     public void LoadServersFromSettings()
     {
-        _settingsService.Settings.EnsureDefaultServers();
-        Servers.Clear();
-        foreach (var s in _settingsService.Settings.Servers)
+        _suppressServerChangedReload = true;
+        try
         {
-            Servers.Add(s);
-        }
+            _settingsService.Settings.EnsureDefaultServers();
+            Servers.Clear();
+            foreach (var s in _settingsService.Settings.Servers)
+            {
+                Servers.Add(s);
+            }
 
-        var active = _settingsService.Settings.GetActiveServer();
-        SelectedServer = Servers.FirstOrDefault(s => s.Id.Equals(active.Id, StringComparison.OrdinalIgnoreCase)) ?? Servers.FirstOrDefault();
+            var active = _settingsService.Settings.GetActiveServer();
+            SelectedServer = Servers.FirstOrDefault(s => s.Id.Equals(active.Id, StringComparison.OrdinalIgnoreCase)) ?? Servers.FirstOrDefault();
+        }
+        finally
+        {
+            _suppressServerChangedReload = false;
+        }
     }
 
     public async Task InitializeAsync()
@@ -249,6 +263,7 @@ public partial class MainViewModel : ObservableObject
 
     public async Task LoadProfilesAsync(bool forceRefresh)
     {
+        await _loadProfilesLock.WaitAsync();
         IsSyncing = true;
         SyncStatusText = forceRefresh ? "Synchroniseren met GitHub..." : "Profielen laden...";
 
@@ -258,22 +273,32 @@ public partial class MainViewModel : ObservableObject
             await _gitHubProfileService.EnsureSubfoldersAndMigrateAsync(_settingsService.Settings.Servers);
 
             var list = await _gitHubProfileService.LoadProfilesAsync(currentServer.ProfilesSubfolder, forceRefresh);
-            Profiles.Clear();
-            foreach (var p in list)
+
+            _suppressProfileSwitchPrompt = true;
+            try
             {
-                Profiles.Add(p);
+                SelectedProfile = null;
+                Profiles.Clear();
+                foreach (var p in list)
+                {
+                    Profiles.Add(p);
+                }
+
+                // Restore last active profile for this server or select first
+                var last = !string.IsNullOrWhiteSpace(currentServer.LastActiveProfile)
+                    ? currentServer.LastActiveProfile
+                    : _settingsService.Settings.LastActiveProfile;
+
+                var match = Profiles.FirstOrDefault(p => p.Name.Equals(last, StringComparison.OrdinalIgnoreCase)) ?? Profiles.FirstOrDefault();
+
+                if (match != null)
+                {
+                    SelectedProfile = match;
+                }
             }
-
-            // Restore last active profile for this server or select first
-            var last = !string.IsNullOrWhiteSpace(currentServer.LastActiveProfile)
-                ? currentServer.LastActiveProfile
-                : _settingsService.Settings.LastActiveProfile;
-
-            var match = Profiles.FirstOrDefault(p => p.Name.Equals(last, StringComparison.OrdinalIgnoreCase)) ?? Profiles.FirstOrDefault();
-            
-            if (match != null)
+            finally
             {
-                SelectedProfile = match;
+                _suppressProfileSwitchPrompt = false;
             }
 
             _lastSyncTime = DateTime.Now;
@@ -286,12 +311,31 @@ public partial class MainViewModel : ObservableObject
         finally
         {
             IsSyncing = false;
+            _loadProfilesLock.Release();
         }
     }
 
     partial void OnSelectedProfileChanged(ProfileModel? oldValue, ProfileModel? newValue)
     {
-        if (newValue == null) return;
+        if (_revertingProfileSelection) return;
+
+        if (newValue == null)
+        {
+            RebuildServiceCards();
+            return;
+        }
+
+        if (!_suppressProfileSwitchPrompt &&
+            oldValue != null &&
+            !ReferenceEquals(oldValue, newValue) &&
+            !string.Equals(oldValue.Name, newValue.Name, StringComparison.OrdinalIgnoreCase) &&
+            (oldValue.AutoStopPreviousOnSwitch ||
+             !_settingsService.Settings.PromptToStopPreviousProfile ||
+             RequestSwitchProfileConfirmation != null))
+        {
+            HandleProfileSwitchAsync(oldValue, newValue).SafeFireAndForget(nameof(HandleProfileSwitchAsync));
+            return;
+        }
 
         if (SelectedServer != null)
         {
@@ -300,17 +344,11 @@ public partial class MainViewModel : ObservableObject
         _settingsService.Settings.LastActiveProfile = newValue.Name;
         _settingsService.Save();
 
-        if (oldValue != null && oldValue.Name != newValue.Name && RequestSwitchProfileConfirmation != null)
-        {
-            _ = HandleProfileSwitchAsync(oldValue);
-            return;
-        }
-
         RebuildServiceCards();
         _ = RefreshAllCardStatusesAsync();
     }
 
-    private async Task HandleProfileSwitchAsync(ProfileModel oldProfile)
+    private async Task HandleProfileSwitchAsync(ProfileModel oldProfile, ProfileModel newProfile)
     {
         bool shouldStop = oldProfile.AutoStopPreviousOnSwitch;
         if (!shouldStop)
@@ -322,12 +360,30 @@ public partial class MainViewModel : ObservableObject
             else if (RequestSwitchProfileConfirmation != null)
             {
                 var res = await RequestSwitchProfileConfirmation.Invoke(oldProfile.Name);
-                if (res == true)
+                if (res == null)
                 {
-                    shouldStop = true;
+                    _revertingProfileSelection = true;
+                    try
+                    {
+                        SelectedProfile = oldProfile;
+                    }
+                    finally
+                    {
+                        _revertingProfileSelection = false;
+                    }
+                    return;
                 }
+
+                shouldStop = res.Value;
             }
         }
+
+        if (SelectedServer != null)
+        {
+            SelectedServer.LastActiveProfile = newProfile.Name;
+        }
+        _settingsService.Settings.LastActiveProfile = newProfile.Name;
+        _settingsService.Save();
 
         if (shouldStop)
         {
@@ -420,8 +476,20 @@ public partial class MainViewModel : ObservableObject
 
         await _gitHubProfileService.DeleteProfileLocallyAsync(profileToDelete.Name, subfolder);
 
-        Profiles.Remove(profileToDelete);
-        SelectedProfile = Profiles.FirstOrDefault();
+        _suppressProfileSwitchPrompt = true;
+        try
+        {
+            Profiles.Remove(profileToDelete);
+            SelectedProfile = Profiles.FirstOrDefault();
+            if (SelectedProfile == null)
+            {
+                RebuildServiceCards();
+            }
+        }
+        finally
+        {
+            _suppressProfileSwitchPrompt = false;
+        }
         StatusNotification = $"🗑️ Profiel '{profileToDelete.Name}' is verwijderd.";
     }
 
@@ -548,7 +616,12 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private async Task SyncWithGitHubAsync()
     {
+        HasExternalProfileChanges = false;
+        UpdateAllButtonText = LocalizationService.Instance.Get("Tray_UpdateAll");
+        UpdateAllButtonBackground = "#2563EB";
+        _lastHandledChange = DateTime.UtcNow.AddSeconds(2);
         await LoadProfilesAsync(forceRefresh: true);
+        StatusNotification = $"✅ Profielen gesynchroniseerd ({Profiles.Count} geladen)";
     }
 
     [RelayCommand]
@@ -571,27 +644,33 @@ public partial class MainViewModel : ObservableObject
 
     public static List<ServiceCardViewModel> SortCardsByDependencies(IEnumerable<ServiceCardViewModel> cards)
     {
-        var cardList = cards.ToList();
-        var cardMap = cardList.ToDictionary(c => c.Service.Id, c => c, StringComparer.OrdinalIgnoreCase);
+        var cardList = cards.Where(c => c != null).ToList();
+        var cardMap = BuildServiceCardMap(cardList);
         var result = new List<ServiceCardViewModel>();
-        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var visited = new HashSet<ServiceCardViewModel>(ReferenceEqualityComparer.Instance);
+        var visiting = new HashSet<ServiceCardViewModel>(ReferenceEqualityComparer.Instance);
 
         void Visit(ServiceCardViewModel card)
         {
-            if (visited.Contains(card.Service.Id)) return;
-            visited.Add(card.Service.Id);
+            if (visited.Contains(card) || visiting.Contains(card)) return;
+            visiting.Add(card);
 
             if (card.Service.DependsOn != null)
             {
                 foreach (var depId in card.Service.DependsOn)
                 {
-                    if (cardMap.TryGetValue(depId, out var depCard))
+                    if (!string.IsNullOrWhiteSpace(depId) && cardMap.TryGetValue(depId, out var depCard))
                     {
                         Visit(depCard);
                     }
                 }
             }
-            result.Add(card);
+
+            visiting.Remove(card);
+            if (visited.Add(card))
+            {
+                result.Add(card);
+            }
         }
 
         // Prioritize infrastructure (cloudflared, databases) first
@@ -608,6 +687,74 @@ public partial class MainViewModel : ObservableObject
         return result;
     }
 
+    public static List<List<ServiceCardViewModel>> GroupCardsIntoStartWaves(IEnumerable<ServiceCardViewModel> cards)
+    {
+        var ordered = SortCardsByDependencies(cards);
+        if (ordered.Count == 0) return new List<List<ServiceCardViewModel>>();
+
+        var cardMap = BuildServiceCardMap(ordered);
+        var hasAnyInfra = ordered.Any(c => IsInfrastructureService(c.Service));
+        var memo = new Dictionary<ServiceCardViewModel, int>(ReferenceEqualityComparer.Instance);
+        var visiting = new HashSet<ServiceCardViewModel>(ReferenceEqualityComparer.Instance);
+
+        int GetWave(ServiceCardViewModel card)
+        {
+            if (memo.TryGetValue(card, out var cached)) return cached;
+            if (!visiting.Add(card)) return 0;
+
+            int maxDepWave = -1;
+            if (card.Service.DependsOn != null)
+            {
+                foreach (var depId in card.Service.DependsOn)
+                {
+                    if (!string.IsNullOrWhiteSpace(depId) &&
+                        cardMap.TryGetValue(depId, out var depCard) &&
+                        !ReferenceEquals(depCard, card) &&
+                        !visiting.Contains(depCard))
+                    {
+                        maxDepWave = Math.Max(maxDepWave, GetWave(depCard));
+                    }
+                }
+            }
+
+            visiting.Remove(card);
+
+            int wave = IsInfrastructureService(card.Service)
+                ? Math.Max(0, maxDepWave + 1)
+                : (maxDepWave >= 0 ? maxDepWave + 1 : (hasAnyInfra ? 1 : 0));
+
+            memo[card] = wave;
+            return wave;
+        }
+
+        var waveDict = new SortedDictionary<int, List<ServiceCardViewModel>>();
+        foreach (var card in ordered)
+        {
+            int wave = GetWave(card);
+            if (!waveDict.TryGetValue(wave, out var list))
+            {
+                list = new List<ServiceCardViewModel>();
+                waveDict[wave] = list;
+            }
+            list.Add(card);
+        }
+
+        return waveDict.Values.ToList();
+    }
+
+    private static Dictionary<string, ServiceCardViewModel> BuildServiceCardMap(IEnumerable<ServiceCardViewModel> cards)
+    {
+        var cardMap = new Dictionary<string, ServiceCardViewModel>(StringComparer.OrdinalIgnoreCase);
+        foreach (var card in cards)
+        {
+            if (!string.IsNullOrWhiteSpace(card.Service.Id) && !cardMap.ContainsKey(card.Service.Id))
+            {
+                cardMap[card.Service.Id] = card;
+            }
+        }
+        return cardMap;
+    }
+
     private static bool IsInfrastructureService(ServiceDefinition svc)
     {
         var id = (svc.Id ?? "").ToLowerInvariant();
@@ -620,15 +767,23 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private async Task StartAllAsync()
     {
-        var orderedCards = SortCardsByDependencies(ServiceCards);
-        foreach (var card in orderedCards)
+        var waves = GroupCardsIntoStartWaves(ServiceCards);
+        foreach (var wave in waves)
         {
-            if (card.IsStopped && !card.IsBusy)
+            var tasks = new List<Task>();
+            foreach (var card in wave)
             {
-                _ = card.StartCommand.ExecuteAsync(null);
+                if (card.IsStopped && !card.IsBusy)
+                {
+                    tasks.Add(card.StartCommand.ExecuteAsync(null));
+                }
+            }
+
+            if (tasks.Count > 0)
+            {
+                await Task.WhenAll(tasks);
             }
         }
-        await Task.CompletedTask;
     }
 
     [RelayCommand]

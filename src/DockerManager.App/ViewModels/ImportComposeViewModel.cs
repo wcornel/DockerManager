@@ -35,19 +35,42 @@ public partial class ImportComposeViewModel : ObservableObject
     [ObservableProperty]
     private bool _hasParsedServices;
 
+    private string _lastParsedYaml = string.Empty;
+
+    public bool HasActiveProfile { get; }
+
     public ObservableCollection<ServiceDefinition> ParsedServices { get; } = new();
 
     public List<ServiceDefinition> ResultServices { get; } = new();
     public bool IsConfirmed { get; private set; }
-    public bool TargetIsNewProfile => CreateNewProfile;
-    public string TargetProfileName => CreateNewProfile ? NewProfileName.Trim() : ActiveProfileName.Trim();
+    public bool TargetIsNewProfile => !HasActiveProfile || CreateNewProfile;
+    public string TargetProfileName => TargetIsNewProfile ? NewProfileName.Trim() : ActiveProfileName.Trim();
 
     public event Action? RequestClose;
 
     public ImportComposeViewModel(IDockerComposeImporterService importerService, string currentProfileName)
     {
         _importerService = importerService;
-        ActiveProfileName = string.IsNullOrWhiteSpace(currentProfileName) ? "Actief Profiel" : currentProfileName;
+        if (string.IsNullOrWhiteSpace(currentProfileName))
+        {
+            HasActiveProfile = false;
+            ImportIntoActiveProfile = false;
+            CreateNewProfile = true;
+            ActiveProfileName = string.Empty;
+        }
+        else
+        {
+            HasActiveProfile = true;
+            ActiveProfileName = currentProfileName;
+        }
+    }
+
+    partial void OnYamlTextChanged(string value)
+    {
+        if (!string.Equals(value, _lastParsedYaml, StringComparison.Ordinal))
+        {
+            HasParsedServices = false;
+        }
     }
 
     [RelayCommand]
@@ -100,11 +123,13 @@ public partial class ImportComposeViewModel : ObservableObject
                 NewProfileName = result.SuggestedProfileName;
             }
 
+            _lastParsedYaml = YamlText;
             HasParsedServices = true;
             StatusMessage = $"✅ {result.ParsedServices.Count} container(s) succesvol herkend in YAML!";
         }
         else
         {
+            _lastParsedYaml = string.Empty;
             HasParsedServices = false;
             ParsedServices.Clear();
             StatusMessage = $"❌ {result.ErrorMessage}";
@@ -114,13 +139,13 @@ public partial class ImportComposeViewModel : ObservableObject
     [RelayCommand]
     private void ConfirmImport()
     {
-        if (!HasParsedServices || ParsedServices.Count == 0)
+        if (!HasParsedServices || ParsedServices.Count == 0 || !string.Equals(YamlText, _lastParsedYaml, StringComparison.Ordinal))
         {
             ParseYaml();
             if (!HasParsedServices) return;
         }
 
-        if (CreateNewProfile && string.IsNullOrWhiteSpace(NewProfileName))
+        if (TargetIsNewProfile && string.IsNullOrWhiteSpace(NewProfileName))
         {
             StatusMessage = "⚠️ Vul een geldige naam in voor het nieuwe profiel.";
             return;

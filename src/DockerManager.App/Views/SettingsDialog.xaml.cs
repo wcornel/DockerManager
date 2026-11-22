@@ -40,7 +40,7 @@ public partial class SettingsDialog : Window
 
             if (loginVm.LoginSucceeded)
             {
-                _viewModel.LoadFromSettings();
+                _viewModel.RefreshGitHubAuthStatus();
             }
         }
         catch (Exception ex)

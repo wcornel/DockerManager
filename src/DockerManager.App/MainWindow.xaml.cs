@@ -368,17 +368,20 @@ public partial class MainWindow : Window
 
     private async void ImportComposeMenu_Click(object sender, RoutedEventArgs e)
     {
-        var currentProfileName = _viewModel.SelectedProfile?.Name ?? "Werk";
+        var currentProfileName = _viewModel.SelectedProfile?.Name ?? string.Empty;
         var vm = new ImportComposeViewModel(_composeImporterService, currentProfileName);
         var dialog = new ImportComposeDialog(vm) { Owner = this };
 
         if (dialog.ShowDialog() == true && vm.IsConfirmed && vm.ResultServices.Count > 0)
         {
-            if (vm.TargetIsNewProfile)
+            var subfolder = _viewModel.SelectedServer?.ProfilesSubfolder ?? _settingsService.Settings.GetActiveServer().ProfilesSubfolder;
+
+            if (vm.TargetIsNewProfile || _viewModel.SelectedProfile == null)
             {
+                var targetName = string.IsNullOrWhiteSpace(vm.TargetProfileName) ? "Compose Stack" : vm.TargetProfileName;
                 var newProfile = new ProfileModel
                 {
-                    Name = vm.TargetProfileName,
+                    Name = targetName,
                     Description = $"Geïmporteerd vanuit Docker Compose ({DateTime.Now:yyyy-MM-dd HH:mm})",
                     AutoStopPreviousOnSwitch = false
                 };
@@ -387,9 +390,10 @@ public partial class MainWindow : Window
                     newProfile.Services.Add(svc);
                 }
 
-                await _gitHubProfileService.SaveProfileLocallyAsync(newProfile);
-                await _viewModel.LoadProfilesAsync(forceRefresh: true);
+                await _gitHubProfileService.SaveProfileLocallyAsync(newProfile, subfolder);
+                await _viewModel.LoadProfilesAsync(forceRefresh: false);
                 _viewModel.SelectedProfile = _viewModel.Profiles.FirstOrDefault(p => p.Name.Equals(newProfile.Name, StringComparison.OrdinalIgnoreCase)) ?? _viewModel.Profiles.FirstOrDefault();
+                await _viewModel.SaveCurrentProfileAsync();
                 _viewModel.StatusNotification = $"🎉 Nieuw profiel '{newProfile.Name}' aangemaakt met {vm.ResultServices.Count} container(s)!";
             }
             else
@@ -412,7 +416,7 @@ public partial class MainWindow : Window
                         addedCount++;
                     }
 
-                    await _gitHubProfileService.SaveProfileLocallyAsync(active);
+                    await _viewModel.SaveCurrentProfileAsync();
                     _viewModel.RebuildServiceCards();
                     _ = _viewModel.RefreshAllCardStatusesAsync();
                     _viewModel.StatusNotification = $"🎉 {addedCount} container(s) toegevoegd aan profiel '{active.Name}'!";

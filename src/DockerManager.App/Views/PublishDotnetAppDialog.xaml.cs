@@ -12,8 +12,14 @@ public partial class PublishDotnetAppDialog : Window
 
         viewModel.RequestClose += () =>
         {
-            DialogResult = viewModel.IsCompleted;
-            Close();
+            try
+            {
+                DialogResult = viewModel.IsCompleted;
+            }
+            catch (InvalidOperationException)
+            {
+                Close();
+            }
         };
     }
 }

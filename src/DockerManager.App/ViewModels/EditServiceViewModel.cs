@@ -132,11 +132,18 @@ public class EditableVolumeItem : ObservableObject
         set => SetProperty(ref _containerPath, value);
     }
 
-    private bool _isNamedVolume = true;
+    private bool _isNamedVolume;
     public bool IsNamedVolume
     {
         get => _isNamedVolume;
         set => SetProperty(ref _isNamedVolume, value);
+    }
+
+    private bool _readOnly;
+    public bool ReadOnly
+    {
+        get => _readOnly;
+        set => SetProperty(ref _readOnly, value);
     }
 }
 
@@ -212,6 +219,10 @@ public partial class EditServiceViewModel : ObservableObject
     private string? _registeredCloudflareHost;
     private readonly string? _originalCloudflareHostname;
     private readonly Dictionary<string, string> _initialEnvironment = new();
+    private readonly string? _preservedNetworkMode;
+    private readonly List<string> _preservedDependsOn = new();
+    private readonly Dictionary<string, string> _preservedLabels = new();
+    private readonly DateTime? _preservedLastUpdatedUtc;
 
     public bool IsContainerRunning { get; set; }
     public bool RestartRequested { get; private set; }
@@ -271,9 +282,20 @@ public partial class EditServiceViewModel : ObservableObject
         _settingsService = settingsService;
         _profile = profile;
 
-        var effDomain = _profile?.GetEffectiveCloudflareDomain(_settingsService?.Settings);
-        _cloudflareDomain = !string.IsNullOrWhiteSpace(effDomain) ? effDomain : (_settingsService?.Settings.CloudflareDomain ?? string.Empty);
-        _hasCloudflareConfigured = (_profile?.Cloudflare != null && _profile.Cloudflare.HasConfiguration) || (_settingsService?.Settings.HasCloudflareConfigured ?? false);
+        var settings = _settingsService?.Settings;
+        var activeServer = settings?.GetActiveServer();
+        var effCf = _profile?.GetEffectiveCloudflareConfig(settings, activeServer);
+        var effDomain = _profile?.GetEffectiveCloudflareDomain(settings, activeServer);
+        _cloudflareDomain = !string.IsNullOrWhiteSpace(effDomain)
+            ? effDomain
+            : (!string.IsNullOrWhiteSpace(activeServer?.CloudflareDomain)
+                ? activeServer.CloudflareDomain.Trim().TrimStart('.').ToLowerInvariant()
+                : (settings?.CloudflareDomain ?? string.Empty));
+        _hasCloudflareConfigured =
+            (_profile?.Cloudflare != null && _profile.Cloudflare.HasConfiguration) ||
+            (effCf != null && !string.IsNullOrWhiteSpace(effCf.AccountId) && !string.IsNullOrWhiteSpace(effCf.TunnelId) && !string.IsNullOrWhiteSpace(effCf.Domain)) ||
+            (activeServer?.HasCloudflareConfigured ?? false) ||
+            (settings?.HasCloudflareConfigured ?? false);
 
         if (existingService != null)
         {
@@ -288,6 +310,10 @@ public partial class EditServiceViewModel : ObservableObject
             _command = existingService.Command != null ? Helpers.CommandLineHelper.FormatCommandLine(existingService.Command) : string.Empty;
             _autoStart = existingService.AutoStart;
             _requiresAuth = existingService.RequiresAuth;
+            _preservedNetworkMode = existingService.NetworkMode;
+            _preservedDependsOn = existingService.DependsOn != null ? new List<string>(existingService.DependsOn) : new List<string>();
+            _preservedLabels = existingService.Labels != null ? new Dictionary<string, string>(existingService.Labels) : new Dictionary<string, string>();
+            _preservedLastUpdatedUtc = existingService.LastUpdatedUtc;
 
             var existingHost = existingService.CloudflareHostname;
             if (string.IsNullOrWhiteSpace(existingHost) && existingService.Labels != null && existingService.Labels.TryGetValue("cloudflare.tunnel.hostname", out var lblHost))
@@ -301,10 +327,19 @@ public partial class EditServiceViewModel : ObservableObject
                 _enableCloudflareTunnel = true;
                 _registeredCloudflareHost = existingHost;
                 var hostOnly = existingHost.Replace("https://", "").Replace("http://", "").Trim('/');
-                if (!string.IsNullOrWhiteSpace(_cloudflareDomain) && hostOnly.EndsWith(_cloudflareDomain, StringComparison.OrdinalIgnoreCase))
+                if (!string.IsNullOrWhiteSpace(_cloudflareDomain) &&
+                    (hostOnly.Equals(_cloudflareDomain, StringComparison.OrdinalIgnoreCase) ||
+                     hostOnly.EndsWith("." + _cloudflareDomain, StringComparison.OrdinalIgnoreCase)))
                 {
-                    var sub = hostOnly[..^Math.Min(hostOnly.Length, _cloudflareDomain.Length)].TrimEnd('.');
-                    _cloudflareSubdomain = sub;
+                    if (hostOnly.Equals(_cloudflareDomain, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _cloudflareSubdomain = string.Empty;
+                    }
+                    else
+                    {
+                        var sub = hostOnly[..^Math.Min(hostOnly.Length, _cloudflareDomain.Length + 1)].TrimEnd('.');
+                        _cloudflareSubdomain = sub;
+                    }
                 }
                 else
                 {
@@ -340,7 +375,8 @@ public partial class EditServiceViewModel : ObservableObject
                 {
                     HostPath = v.HostPath,
                     ContainerPath = v.ContainerPath,
-                    IsNamedVolume = v.IsNamedVolume
+                    IsNamedVolume = v.IsNamedVolume,
+                    ReadOnly = v.ReadOnly
                 });
             }
 
@@ -379,7 +415,7 @@ public partial class EditServiceViewModel : ObservableObject
     [RelayCommand]
     private void AddVolume()
     {
-        Volumes.Add(new EditableVolumeItem { HostPath = "container_data", ContainerPath = "/app/data", IsNamedVolume = true });
+        Volumes.Add(new EditableVolumeItem { HostPath = "./data", ContainerPath = "/app/data", IsNamedVolume = false, ReadOnly = false });
     }
 
     [RelayCommand]
@@ -664,10 +700,14 @@ public partial class EditServiceViewModel : ObservableObject
             Image = Image.Trim(),
             Description = Description,
             RestartPolicy = RestartPolicy,
+            NetworkMode = _preservedNetworkMode,
             WorkingDir = string.IsNullOrWhiteSpace(WorkingDir) ? null : WorkingDir.Trim(),
             Command = Helpers.CommandLineHelper.ParseCommandLine(Command),
             AutoStart = AutoStart,
-            RequiresAuth = RequiresAuth
+            RequiresAuth = RequiresAuth,
+            LastUpdatedUtc = _preservedLastUpdatedUtc,
+            DependsOn = new List<string>(_preservedDependsOn),
+            Labels = new Dictionary<string, string>(_preservedLabels)
         };
 
         foreach (var p in Ports)
@@ -692,7 +732,8 @@ public partial class EditServiceViewModel : ObservableObject
                 {
                     HostPath = v.HostPath,
                     ContainerPath = v.ContainerPath,
-                    IsNamedVolume = v.IsNamedVolume
+                    IsNamedVolume = v.IsNamedVolume,
+                    ReadOnly = v.ReadOnly
                 });
             }
         }

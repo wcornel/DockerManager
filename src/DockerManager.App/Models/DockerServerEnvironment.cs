@@ -21,6 +21,12 @@ public class DockerServerEnvironment
     [System.Text.Json.Serialization.JsonIgnore]
     public string CloudflareApiToken { get; set; } = string.Empty;
 
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasCloudflareConfigured =>
+        !string.IsNullOrWhiteSpace(CloudflareAccountId) &&
+        !string.IsNullOrWhiteSpace(CloudflareTunnelId) &&
+        !string.IsNullOrWhiteSpace(CloudflareDomain);
+
     public string GetEffectiveVolumesRootPath()
     {
         if (!string.IsNullOrWhiteSpace(VolumesRootPath))

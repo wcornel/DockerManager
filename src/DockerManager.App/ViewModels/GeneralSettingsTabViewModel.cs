@@ -148,7 +148,9 @@ public partial class GeneralSettingsTabViewModel : SettingsTabViewModel
 
         try
         {
-            var (success, message) = await _gitHubProfileService.TestGitHubConnectionAsync();
+            var (success, message) = await _gitHubProfileService.TestGitHubConnectionAsync(
+                overrideOwner: GitHubRepoOwner,
+                overrideRepo: GitHubRepoName);
             GitHubTestStatus = success ? $"✅ {message}" : $"❌ {message}";
         }
         catch (Exception ex)

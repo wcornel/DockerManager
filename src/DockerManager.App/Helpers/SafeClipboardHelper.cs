@@ -91,13 +91,38 @@ public static class SafeClipboardHelper
     {
         if (sender is TextBox tb && !tb.IsReadOnly)
         {
-            var text = GetText();
-            if (!string.IsNullOrEmpty(text))
-            {
-                tb.SelectedText = text;
-            }
+            ApplyPasteToTextBox(tb, GetText());
             e.Handled = true;
         }
+    }
+
+    internal static void ApplyPasteToTextBox(TextBox tb, string? text)
+    {
+        if (tb.IsReadOnly || string.IsNullOrEmpty(text))
+            return;
+
+        if (!tb.AcceptsReturn)
+        {
+            text = text.Replace("\r", string.Empty).Replace("\n", string.Empty);
+            if (string.IsNullOrEmpty(text))
+                return;
+        }
+
+        if (tb.MaxLength > 0)
+        {
+            int currentLengthWithoutSelection = tb.Text.Length - tb.SelectionLength;
+            int remaining = tb.MaxLength - currentLengthWithoutSelection;
+            if (remaining <= 0)
+                return;
+
+            if (text.Length > remaining)
+                text = text[..remaining];
+        }
+
+        int selectionStart = tb.SelectionStart;
+        tb.SelectedText = text;
+        tb.SelectionStart = selectionStart + text.Length;
+        tb.SelectionLength = 0;
     }
 
     /// <summary>

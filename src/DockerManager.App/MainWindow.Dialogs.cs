@@ -54,7 +54,8 @@ public partial class MainWindow
                 Owner = this
             };
 
-            if (dialog.ShowDialog() == true && publishVm.CreatedServiceDefinition != null)
+            dialog.ShowDialog();
+            if (publishVm.IsCompleted && publishVm.CreatedServiceDefinition != null)
             {
                 if (_viewModel.SelectedProfile != null)
                 {
@@ -152,8 +153,11 @@ public partial class MainWindow
     {
         try
         {
+            var originalService = cardVm.Service;
+            var originalId = originalService.Id;
+            var serviceCountBefore = _viewModel.SelectedProfile?.Services.Count ?? 0;
             var isRunning = cardVm.IsRunning;
-            var editVm = new EditServiceViewModel(cardVm.Service, _dockerService, _cloudflareService, _settingsService, _viewModel.SelectedProfile)
+            var editVm = new EditServiceViewModel(originalService, _dockerService, _cloudflareService, _settingsService, _viewModel.SelectedProfile)
             {
                 IsContainerRunning = isRunning
             };
@@ -170,31 +174,55 @@ public partial class MainWindow
                 }
 
                 var updated = editVm.ToServiceDefinition();
-                cardVm.UpdateService(updated);
+                var targetCard = cardVm;
 
                 // Update in profile model
                 if (_viewModel.SelectedProfile != null)
                 {
-                    var idx = _viewModel.SelectedProfile.Services.FindIndex(s => s.Id == cardVm.Service.Id);
+                    var services = _viewModel.SelectedProfile.Services;
+                    var idx = services.IndexOf(originalService);
+                    if (idx < 0)
+                    {
+                        idx = services.FindIndex(s => string.Equals(s.Id, originalId, StringComparison.OrdinalIgnoreCase));
+                    }
+
                     if (idx >= 0)
                     {
-                        _viewModel.SelectedProfile.Services[idx] = updated;
+                        services[idx] = updated;
                     }
+
+                    if (services.Count != serviceCountBefore)
+                    {
+                        _viewModel.RebuildServiceCards();
+                        targetCard = _viewModel.ServiceCards.FirstOrDefault(c => ReferenceEquals(c.Service, updated))
+                            ?? _viewModel.ServiceCards.FirstOrDefault(c => string.Equals(c.Service.Id, updated.Id, StringComparison.OrdinalIgnoreCase))
+                            ?? cardVm;
+                        _ = _viewModel.RefreshAllCardStatusesAsync();
+                    }
+                    else
+                    {
+                        cardVm.UpdateService(updated);
+                        _ = cardVm.RefreshStatusAsync();
+                    }
+
                     _ = _viewModel.SaveCurrentProfileAsync();
                 }
-
-                _ = cardVm.RefreshStatusAsync();
+                else
+                {
+                    cardVm.UpdateService(updated);
+                    _ = cardVm.RefreshStatusAsync();
+                }
 
                 if (isRunning && editVm.HasEnvironmentChanges())
                 {
                     if (editVm.RestartRequested)
                     {
-                        _ = cardVm.RestartCommand.ExecuteAsync(null);
+                        _ = targetCard.RestartCommand.ExecuteAsync(null);
                     }
                     else
                     {
                         var notice = LocalizationService.Instance.Get("EditService_EnvRestartCardNotice");
-                        cardVm.StatusMessage = notice;
+                        targetCard.StatusMessage = notice;
                         _viewModel.StatusNotification = $"⚠️ {updated.DisplayName}: {notice}";
                     }
                 }

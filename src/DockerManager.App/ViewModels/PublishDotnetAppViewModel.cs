@@ -175,14 +175,17 @@ public partial class PublishDotnetAppViewModel : ObservableObject
         }
     }
 
-    partial void OnAppNameChanged(string value)
+    partial void OnAppNameChanged(string? oldValue, string newValue)
     {
         OnPropertyChanged(nameof(LiveTargetImageName));
         OnPropertyChanged(nameof(LiveReleaseImageTag));
 
-        if (string.IsNullOrWhiteSpace(CloudflareSubdomain) || CloudflareSubdomain == AppName.ToLowerInvariant())
+        var prevNormalized = (oldValue ?? string.Empty).Trim().ToLowerInvariant();
+        var nextNormalized = (newValue ?? string.Empty).Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(CloudflareSubdomain) ||
+            CloudflareSubdomain.Equals(prevNormalized, StringComparison.OrdinalIgnoreCase))
         {
-            CloudflareSubdomain = value.Trim().ToLowerInvariant();
+            CloudflareSubdomain = nextNormalized;
             OnPropertyChanged(nameof(FullCloudflareUrl));
         }
     }
@@ -241,9 +244,19 @@ public partial class PublishDotnetAppViewModel : ObservableObject
         TargetGitHubRepo = string.IsNullOrWhiteSpace(s.GitHubDeployRepo) ? "DotnetContainers" : s.GitHubDeployRepo;
         GitHubBranch = string.IsNullOrWhiteSpace(s.GitHubBranch) ? "main" : s.GitHubBranch;
 
-        var effDomain = _profile?.GetEffectiveCloudflareDomain(s);
-        CloudflareDomain = !string.IsNullOrWhiteSpace(effDomain) ? effDomain : s.CloudflareDomain;
-        HasCloudflareConfigured = (_profile?.Cloudflare != null && _profile.Cloudflare.HasConfiguration) || s.HasCloudflareConfigured;
+        var activeServer = s.GetActiveServer();
+        var effCf = _profile?.GetEffectiveCloudflareConfig(s, activeServer);
+        var effDomain = _profile?.GetEffectiveCloudflareDomain(s, activeServer);
+        CloudflareDomain = !string.IsNullOrWhiteSpace(effDomain)
+            ? effDomain
+            : (!string.IsNullOrWhiteSpace(activeServer?.CloudflareDomain)
+                ? activeServer.CloudflareDomain.Trim().TrimStart('.').ToLowerInvariant()
+                : s.CloudflareDomain);
+        HasCloudflareConfigured =
+            (_profile?.Cloudflare != null && _profile.Cloudflare.HasConfiguration) ||
+            (effCf != null && !string.IsNullOrWhiteSpace(effCf.AccountId) && !string.IsNullOrWhiteSpace(effCf.TunnelId) && !string.IsNullOrWhiteSpace(effCf.Domain)) ||
+            (activeServer?.HasCloudflareConfigured ?? false) ||
+            s.HasCloudflareConfigured;
         EnableCloudflareTunnel = HasCloudflareConfigured;
 
         if (IsPython)
@@ -481,6 +494,20 @@ public partial class PublishDotnetAppViewModel : ObservableObject
             if (result.Success)
             {
                 ImageTag = result.ImageTag;
+                if (!string.IsNullOrWhiteSpace(result.GitHubRepoUrl))
+                {
+                    GitHubRepoUrl = result.GitHubRepoUrl;
+                }
+                else if (PushToRegistry &&
+                         request.TargetRegistry.Equals("ghcr.io", StringComparison.OrdinalIgnoreCase) &&
+                         !string.IsNullOrWhiteSpace(request.TargetGitHubOwner))
+                {
+                    GitHubRepoUrl = $"https://github.com/{Uri.EscapeDataString(request.TargetGitHubOwner)}?tab=packages";
+                }
+                else if (!string.IsNullOrWhiteSpace(request.TargetGitHubOwner) && !string.IsNullOrWhiteSpace(request.TargetGitHubRepo))
+                {
+                    GitHubRepoUrl = $"https://github.com/{Uri.EscapeDataString(request.TargetGitHubOwner)}/{Uri.EscapeDataString(request.TargetGitHubRepo)}";
+                }
                 IsCompleted = true;
                 StatusMessage = PushToRegistry 
                     ? $"🎉 Container '{result.ReleaseTag}' succesvol gebouwd en geüpload naar registry!" 
@@ -536,6 +563,7 @@ public partial class PublishDotnetAppViewModel : ObservableObject
                             if (cfOk && !string.IsNullOrWhiteSpace(fullHost))
                             {
                                 EnsureCloudflaredInProfile = true;
+                                CreatedServiceDefinition.CloudflareHostname = fullHost;
                                 CreatedServiceDefinition.Labels["cloudflare.tunnel.hostname"] = fullHost;
                                 CreatedServiceDefinition.Environment["ASPNETCORE_FORWARDEDHEADERS_ENABLED"] = "true";
                                 StatusMessage += $"\n🌐 Cloudflare URL actief: https://{fullHost}";

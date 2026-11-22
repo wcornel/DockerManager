@@ -288,7 +288,7 @@
                                     <TextBlock Text="https://" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#64748B"/>
                                     <TextBox Grid.Column="1" Text="{Binding CloudflareSubdomain, UpdateSourceTrigger=PropertyChanged}" 
                                              Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4" Margin="4,0,4,0"/>
-                                    <TextBlock Grid.Column="2" Text="{Binding CloudflareDomain, StringFormat='. {0}'}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#64748B"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding CloudflareDomain, StringFormat='.{0}'}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#64748B"/>
                                 </Grid>
 
                                 <TextBlock Margin="24,4,0,0" FontSize="11" Foreground="#9A3412" TextWrapping="Wrap"
@@ -314,10 +314,13 @@
                     <TextBlock Text="Image Tag: " FontSize="12" FontWeight="Bold" Foreground="#16A34A"/>
                     <TextBlock Text="{Binding ImageTag}" FontSize="12" FontWeight="SemiBold" Foreground="#0284C7" Margin="0,0,12,0"/>
                     <Button Content="{helpers:Loc Dockerize_ViewOnGitHub}" Command="{Binding OpenGitHubUrlCommand}"
+                            Visibility="{Binding GitHubRepoUrl, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
                             Padding="8,2" Background="#F1F5F9" Foreground="#4F46E5" BorderBrush="#CBD5E1" BorderThickness="1" FontSize="11" Cursor="Hand"/>
-                    <Button Content="{Binding FullCloudflareUrl, StringFormat='🔗 Open {0}'}" Command="{Binding OpenCloudflareUrlCommand}"
+                    <Button Command="{Binding OpenCloudflareUrlCommand}"
                             Visibility="{Binding FullCloudflareUrl, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"
-                            Margin="8,0,0,0" Padding="8,2" Background="#FFF7ED" Foreground="#EA580C" BorderBrush="#FDBA74" BorderThickness="1" FontSize="11" Cursor="Hand"/>
+                            Margin="8,0,0,0" Padding="8,2" Background="#FFF7ED" Foreground="#EA580C" BorderBrush="#FDBA74" BorderThickness="1" FontSize="11" Cursor="Hand">
+                        <TextBlock Text="{Binding FullCloudflareUrl, StringFormat='🔗 Open {0}'}"/>
+                    </Button>
                 </StackPanel>
             </StackPanel>
         </Border>

@@ -145,10 +145,14 @@ public partial class ServiceCardViewModel : ObservableObject, IDisposable
             clean = clean.Trim('/');
 
             // If only a subdomain was stored (no dot), append domain from profile or settings if available
-            var domain = _profile?.GetEffectiveCloudflareDomain(_settingsService?.Settings);
+            var settings = _settingsService?.Settings;
+            var activeServer = settings?.GetActiveServer();
+            var domain = _profile?.GetEffectiveCloudflareDomain(settings, activeServer);
             if (string.IsNullOrWhiteSpace(domain))
             {
-                domain = _settingsService?.Settings?.CloudflareDomain?.Trim().TrimStart('.').ToLowerInvariant();
+                domain = !string.IsNullOrWhiteSpace(activeServer?.CloudflareDomain)
+                    ? activeServer.CloudflareDomain.Trim().TrimStart('.').ToLowerInvariant()
+                    : settings?.CloudflareDomain?.Trim().TrimStart('.').ToLowerInvariant();
             }
 
             if (!string.IsNullOrWhiteSpace(domain) && !clean.Contains('.'))
@@ -251,9 +255,9 @@ public partial class ServiceCardViewModel : ObservableObject, IDisposable
         GC.SuppressFinalize(this);
     }
 
-    public async Task RefreshStatusAsync(ContainerRuntimeInfo? preFetchedInfo = null, bool fetchStats = true, CancellationToken ct = default)
+    public async Task RefreshStatusAsync(ContainerRuntimeInfo? preFetchedInfo = null, bool fetchStats = true, CancellationToken ct = default, bool force = false)
     {
-        if (IsBusy) return;
+        if (IsBusy && !force) return;
         try
         {
             var info = preFetchedInfo ?? await _dockerService.GetContainerInfoAsync(ContainerName, ct);
@@ -293,6 +297,9 @@ public partial class ServiceCardViewModel : ObservableObject, IDisposable
                 StatusText = "Fout bij ophalen",
                 ErrorMessage = ex.Message
             };
+            OnPropertyChanged(nameof(StatusText));
+            OnPropertyChanged(nameof(IsRunning));
+            OnPropertyChanged(nameof(IsStopped));
             HasResourceStats = false;
         }
     }
@@ -385,7 +392,7 @@ public partial class ServiceCardViewModel : ObservableObject, IDisposable
         {
             var progress = new Progress<string>(msg => LogActivity(msg));
             await _dockerService.StartContainerAsync(Service, _profileName, progress, _profile?.Registry);
-            await RefreshStatusAsync();
+            await RefreshStatusAsync(force: true);
             LogActivity("Container succesvol gestart.");
         }
         catch (Exception ex)
@@ -407,7 +414,7 @@ public partial class ServiceCardViewModel : ObservableObject, IDisposable
         try
         {
             await _dockerService.StopContainerAsync(ContainerName);
-            await RefreshStatusAsync();
+            await RefreshStatusAsync(force: true);
             LogActivity("Container gestopt.");
         }
         catch (Exception ex)
@@ -430,7 +437,7 @@ public partial class ServiceCardViewModel : ObservableObject, IDisposable
         {
             var progress = new Progress<string>(msg => LogActivity(msg));
             await _dockerService.RestartContainerAsync(Service, _profileName, progress, _profile?.Registry);
-            await RefreshStatusAsync();
+            await RefreshStatusAsync(force: true);
             LogActivity("Container herstart.");
         }
         catch (Exception ex)
@@ -456,7 +463,7 @@ public partial class ServiceCardViewModel : ObservableObject, IDisposable
             Service.LastUpdatedUtc = DateTime.UtcNow;
             HasUpdateAvailable = false;
             OnPropertyChanged(nameof(LastUpdatedText));
-            await RefreshStatusAsync();
+            await RefreshStatusAsync(force: true);
             RequestSaveProfile?.Invoke();
 
             if (updateResult.WasUpdated)
@@ -518,7 +525,7 @@ public partial class ServiceCardViewModel : ObservableObject, IDisposable
         try
         {
             await _dockerService.RemoveContainerAsync(ContainerName, removeVolumes: false);
-            await RefreshStatusAsync();
+            await RefreshStatusAsync(force: true);
             LogActivity("Container verwijderd.");
         }
         catch (Exception ex)

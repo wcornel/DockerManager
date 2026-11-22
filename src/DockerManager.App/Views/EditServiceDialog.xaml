@@ -189,13 +189,19 @@
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
                                         <TextBox Grid.Column="0" Text="{Binding HostPath, UpdateSourceTrigger=PropertyChanged}" ToolTip="Host pad of Named Volume"
                                                  Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4"/>
                                         <TextBlock Grid.Column="1" Text=" : " Foreground="#64748B" VerticalAlignment="Center" Margin="6,0"/>
                                         <TextBox Grid.Column="2" Text="{Binding ContainerPath, UpdateSourceTrigger=PropertyChanged}" ToolTip="Pad binnen de container (bijv. /app/data)"
                                                  Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4"/>
-                                        <Button Grid.Column="3" Content="✕" 
+                                        <CheckBox Grid.Column="3" Content="Named" IsChecked="{Binding IsNamedVolume}" VerticalAlignment="Center" Margin="8,0,0,0" FontSize="11"
+                                                  ToolTip="Docker Named Volume (uitgevinkt = host pad / bind-mount)"/>
+                                        <CheckBox Grid.Column="4" Content="RO" IsChecked="{Binding ReadOnly}" VerticalAlignment="Center" Margin="6,0,0,0" FontSize="11"
+                                                  ToolTip="Read-Only mount (:ro)"/>
+                                        <Button Grid.Column="5" Content="✕" 
                                                 Command="{Binding DataContext.RemoveVolumeCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                 CommandParameter="{Binding}"
                                                 Margin="6,0,0,0" Padding="8,4" Background="#FEF2F2" Foreground="#DC2626" BorderBrush="#FECACA" BorderThickness="1"/>
@@ -278,7 +284,7 @@
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="https://" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#64748B"/>
                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding CloudflareSubdomain, UpdateSourceTrigger=PropertyChanged}" 
                                      Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4" Margin="4,0,4,0" ToolTip="Subdomein (bijv. api of app)"/>
-                            <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding CloudflareDomain, StringFormat='. {0}'}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#64748B"/>
+                            <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding CloudflareDomain, StringFormat='.{0}'}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#64748B"/>
 
                             <!-- Target Host Port -->
                             <TextBlock Grid.Row="0" Grid.Column="4" Text="{helpers:Loc EditService_CloudflarePort}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#64748B"/>

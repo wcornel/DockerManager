@@ -147,7 +147,7 @@ public static class CommandLineHelper
                 continue;
             }
 
-            bool needsQuotes = arg.Any(c => char.IsWhiteSpace(c) || c == '"' || c == '\'');
+            bool needsQuotes = arg.Any(c => char.IsWhiteSpace(c) || c == '"' || c == '\'' || c == '\\');
             if (needsQuotes)
             {
                 var escaped = arg.Replace("\\", "\\\\").Replace("\"", "\\\"");
