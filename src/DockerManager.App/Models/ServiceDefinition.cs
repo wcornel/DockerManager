@@ -24,6 +24,12 @@ public class ServiceDefinition
     public string GetEffectiveContainerName()
     {
         var raw = !string.IsNullOrWhiteSpace(ContainerName) ? ContainerName : Id;
-        return string.IsNullOrWhiteSpace(raw) ? "container" : raw.Trim().Replace(" ", "-");
+        if (string.IsNullOrWhiteSpace(raw))
+            return "container";
+
+        var replaced = raw.Trim().Replace(' ', '-');
+        var clean = new string(replaced.Where(c => char.IsAsciiLetterOrDigit(c) || c == '_' || c == '.' || c == '-').ToArray());
+        clean = clean.TrimStart('_', '.', '-');
+        return string.IsNullOrWhiteSpace(clean) ? "container" : clean;
     }
 }

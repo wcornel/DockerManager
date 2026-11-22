@@ -23,3 +23,11 @@ settings.json
 # Local profiles (only track generic example template)
 profiles/*
 !profiles/example.json
+
+# Test outputs & env files
+TestResults/
+*.trx
+coverage*.xml
+.env
+.env.*
+!.env.example

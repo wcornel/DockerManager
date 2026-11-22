@@ -16,7 +16,9 @@ public class DockerServerEnvironment
     public string CloudflareAccountId { get; set; } = string.Empty;
     public string CloudflareTunnelId { get; set; } = string.Empty;
     public string CloudflareTunnelName { get; set; } = string.Empty;
+    [System.Text.Json.Serialization.JsonIgnore]
     public string CloudflareTunnelToken { get; set; } = string.Empty;
+    [System.Text.Json.Serialization.JsonIgnore]
     public string CloudflareApiToken { get; set; } = string.Empty;
 
     public string GetEffectiveVolumesRootPath()

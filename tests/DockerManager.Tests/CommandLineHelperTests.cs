@@ -116,9 +116,8 @@ services:
     [Fact]
     public async Task TestGetContainerStatsSummaryAsync_InvalidContainer_ReturnsNullGracefully()
     {
-        var cred = new CredentialService();
-        var sett = new SettingsService(cred);
-        var dock = new DockerService(sett, cred);
+        using var env = new TestEnvironmentScope();
+        var dock = new DockerService(env.Settings, env.Credentials);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
         var result = await dock.GetContainerStatsSummaryAsync("non_existent_container_xyz_123", cts.Token);

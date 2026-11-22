@@ -30,6 +30,14 @@ public interface ICredentialService
     string? GetCloudflareApiToken();
     void ClearCloudflareApiToken();
 
+    void SaveCloudflareTunnelToken(string token);
+    string? GetCloudflareTunnelToken();
+    void ClearCloudflareTunnelToken();
+    void SaveServerCloudflareApiToken(string serverId, string token);
+    string? GetServerCloudflareApiToken(string serverId);
+    void SaveServerCloudflareTunnelToken(string serverId, string token);
+    string? GetServerCloudflareTunnelToken(string serverId);
+
     List<RegistryCredential> GetAllRegistryCredentials();
     void SaveRegistryCredential(RegistryCredential credential);
     void DeleteRegistryCredential(string serverAddress);
@@ -40,8 +48,11 @@ public class CredentialService : ICredentialService
 {
     private readonly string _tokenFilePath;
     private readonly string _cloudflareTokenFilePath;
+    private readonly string _cloudflareSecretsFilePath;
     private readonly string _registriesFilePath;
+    private readonly object _syncLock = new();
     private static readonly byte[] Entropy = "DockerManager_Entropy_Salt_9988"u8.ToArray();
+    private static readonly JsonSerializerOptions WriteJsonOptions = new() { WriteIndented = true };
 
     public CredentialService(string? customBasePath = null)
     {
@@ -51,6 +62,7 @@ public class CredentialService : ICredentialService
         Directory.CreateDirectory(dir);
         _tokenFilePath = Path.Combine(dir, "gh.dat");
         _cloudflareTokenFilePath = Path.Combine(dir, "cf.dat");
+        _cloudflareSecretsFilePath = Path.Combine(dir, "cf_secrets.dat");
         _registriesFilePath = Path.Combine(dir, "registries.dat");
 
         MigrateLegacyGitHubTokenIfNeeded();
@@ -86,53 +98,83 @@ public class CredentialService : ICredentialService
         if (string.IsNullOrWhiteSpace(token))
         {
             ClearGitHubToken();
-            DeleteRegistryCredential("ghcr.io");
             return;
         }
 
-        var plainBytes = Encoding.UTF8.GetBytes(token.Trim());
-        var encryptedBytes = ProtectedData.Protect(plainBytes, Entropy, DataProtectionScope.CurrentUser);
-        File.WriteAllBytes(_tokenFilePath, encryptedBytes);
-
-        SaveRegistryCredential(new RegistryCredential
+        var trimmed = token.Trim();
+        lock (_syncLock)
         {
-            ServerAddress = "ghcr.io",
-            Username = "GitHub User",
-            Password = token.Trim(),
-            DisplayName = "GitHub Container Registry (ghcr.io)"
-        });
+            WriteEncryptedStringAtomic(_tokenFilePath, trimmed);
+
+            if (!TryLoadRegistriesLocked(out var list))
+            {
+                AppLogger.LogWarning(nameof(CredentialService), "Failed to read existing registry credentials; aborting ghcr.io update to prevent data loss.");
+                return;
+            }
+
+            var existing = list.FirstOrDefault(x =>
+                NormalizeServerAddress(x.ServerAddress).Equals("ghcr.io", StringComparison.OrdinalIgnoreCase));
+            var username = existing != null &&
+                           !string.IsNullOrWhiteSpace(existing.Username) &&
+                           !existing.Username.Equals("GitHub User", StringComparison.OrdinalIgnoreCase)
+                ? existing.Username
+                : "GitHub User";
+
+            list.RemoveAll(x => NormalizeServerAddress(x.ServerAddress).Equals("ghcr.io", StringComparison.OrdinalIgnoreCase));
+            list.Add(new RegistryCredential
+            {
+                ServerAddress = "ghcr.io",
+                Username = username,
+                Password = trimmed,
+                DisplayName = "GitHub Container Registry (ghcr.io)"
+            });
+
+            SaveAllRegistriesLocked(list);
+        }
     }
 
     public string? GetGitHubToken()
     {
-        var cred = GetCredentialForImage("ghcr.io");
-        if (cred != null && !string.IsNullOrWhiteSpace(cred.Password))
+        lock (_syncLock)
         {
-            return cred.Password;
-        }
+            if (File.Exists(_tokenFilePath))
+            {
+                var token = ReadEncryptedString(_tokenFilePath, out _);
+                if (!string.IsNullOrWhiteSpace(token))
+                {
+                    return token;
+                }
+            }
 
-        if (!File.Exists(_tokenFilePath))
-            return null;
+            if (TryLoadRegistriesLocked(out var list))
+            {
+                var cred = list.FirstOrDefault(x =>
+                    NormalizeServerAddress(x.ServerAddress).Equals("ghcr.io", StringComparison.OrdinalIgnoreCase));
+                if (cred != null && !string.IsNullOrWhiteSpace(cred.Password))
+                {
+                    return cred.Password;
+                }
+            }
 
-        try
-        {
-            var encryptedBytes = File.ReadAllBytes(_tokenFilePath);
-            var plainBytes = ProtectedData.Unprotect(encryptedBytes, Entropy, DataProtectionScope.CurrentUser);
-            return Encoding.UTF8.GetString(plainBytes);
-        }
-        catch
-        {
             return null;
         }
     }
 
     public void ClearGitHubToken()
     {
-        if (File.Exists(_tokenFilePath))
+        lock (_syncLock)
         {
-            try { File.Delete(_tokenFilePath); } catch { }
+            DeleteFileSafe(_tokenFilePath);
+            if (TryLoadRegistriesLocked(out var list))
+            {
+                list.RemoveAll(x => NormalizeServerAddress(x.ServerAddress).Equals("ghcr.io", StringComparison.OrdinalIgnoreCase));
+                SaveAllRegistriesLocked(list);
+            }
+            else
+            {
+                AppLogger.LogWarning(nameof(CredentialService), "Failed to read existing registry credentials while clearing GitHub token.");
+            }
         }
-        DeleteRegistryCredential("ghcr.io");
     }
 
     public bool HasToken()
@@ -148,125 +190,344 @@ public class CredentialService : ICredentialService
             return;
         }
 
-        var plainBytes = Encoding.UTF8.GetBytes(token.Trim());
-        var encryptedBytes = ProtectedData.Protect(plainBytes, Entropy, DataProtectionScope.CurrentUser);
-        File.WriteAllBytes(_cloudflareTokenFilePath, encryptedBytes);
+        lock (_syncLock)
+        {
+            WriteEncryptedStringAtomic(_cloudflareTokenFilePath, token.Trim());
+        }
     }
 
     public string? GetCloudflareApiToken()
     {
-        if (!File.Exists(_cloudflareTokenFilePath))
-            return null;
-
-        try
+        lock (_syncLock)
         {
-            var encryptedBytes = File.ReadAllBytes(_cloudflareTokenFilePath);
-            var plainBytes = ProtectedData.Unprotect(encryptedBytes, Entropy, DataProtectionScope.CurrentUser);
-            return Encoding.UTF8.GetString(plainBytes);
-        }
-        catch
-        {
-            return null;
+            return ReadEncryptedString(_cloudflareTokenFilePath, out _);
         }
     }
 
     public void ClearCloudflareApiToken()
     {
-        if (File.Exists(_cloudflareTokenFilePath))
+        lock (_syncLock)
         {
-            try { File.Delete(_cloudflareTokenFilePath); } catch { }
+            DeleteFileSafe(_cloudflareTokenFilePath);
+        }
+    }
+
+    public void SaveCloudflareTunnelToken(string token) => SetCloudflareSecret("global:tunnel", token);
+
+    public string? GetCloudflareTunnelToken() => GetCloudflareSecret("global:tunnel");
+
+    public void ClearCloudflareTunnelToken() => SetCloudflareSecret("global:tunnel", string.Empty);
+
+    public void SaveServerCloudflareApiToken(string serverId, string token)
+    {
+        if (string.IsNullOrWhiteSpace(serverId)) return;
+        SetCloudflareSecret($"server:{serverId.Trim()}:api", token);
+    }
+
+    public string? GetServerCloudflareApiToken(string serverId)
+    {
+        if (string.IsNullOrWhiteSpace(serverId)) return null;
+        return GetCloudflareSecret($"server:{serverId.Trim()}:api");
+    }
+
+    public void SaveServerCloudflareTunnelToken(string serverId, string token)
+    {
+        if (string.IsNullOrWhiteSpace(serverId)) return;
+        SetCloudflareSecret($"server:{serverId.Trim()}:tunnel", token);
+    }
+
+    public string? GetServerCloudflareTunnelToken(string serverId)
+    {
+        if (string.IsNullOrWhiteSpace(serverId)) return null;
+        return GetCloudflareSecret($"server:{serverId.Trim()}:tunnel");
+    }
+
+    private string? GetCloudflareSecret(string key)
+    {
+        lock (_syncLock)
+        {
+            if (!TryLoadCloudflareSecretsLocked(out var dict))
+            {
+                return null;
+            }
+
+            return dict.TryGetValue(key, out var val) && !string.IsNullOrWhiteSpace(val) ? val : null;
+        }
+    }
+
+    private void SetCloudflareSecret(string key, string value)
+    {
+        lock (_syncLock)
+        {
+            if (!TryLoadCloudflareSecretsLocked(out var dict))
+            {
+                AppLogger.LogWarning(nameof(CredentialService), "Failed to read existing Cloudflare secrets; aborting write to prevent data loss.");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                if (!dict.Remove(key))
+                {
+                    return;
+                }
+            }
+            else
+            {
+                dict[key] = value.Trim();
+            }
+
+            try
+            {
+                var json = JsonSerializer.Serialize(dict, WriteJsonOptions);
+                WriteEncryptedStringAtomic(_cloudflareSecretsFilePath, json);
+            }
+            catch (Exception ex)
+            {
+                AppLogger.LogWarning(nameof(CredentialService), "Failed to save Cloudflare secrets", ex);
+            }
+        }
+    }
+
+    private bool TryLoadCloudflareSecretsLocked(out Dictionary<string, string> secrets)
+    {
+        secrets = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (!File.Exists(_cloudflareSecretsFilePath))
+        {
+            return true;
+        }
+
+        var json = ReadEncryptedString(_cloudflareSecretsFilePath, out bool readSucceeded);
+        if (!readSucceeded)
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return true;
+        }
+
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            if (parsed != null)
+            {
+                secrets = new Dictionary<string, string>(parsed, StringComparer.OrdinalIgnoreCase);
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLogger.LogWarning(nameof(CredentialService), "Failed to deserialize Cloudflare secrets", ex);
+            return false;
         }
     }
 
     public List<RegistryCredential> GetAllRegistryCredentials()
     {
-        if (!File.Exists(_registriesFilePath))
-            return new List<RegistryCredential>();
-
-        try
+        lock (_syncLock)
         {
-            var encryptedBytes = File.ReadAllBytes(_registriesFilePath);
-            var plainBytes = ProtectedData.Unprotect(encryptedBytes, Entropy, DataProtectionScope.CurrentUser);
-            var json = Encoding.UTF8.GetString(plainBytes);
-            return JsonSerializer.Deserialize<List<RegistryCredential>>(json) ?? new List<RegistryCredential>();
-        }
-        catch
-        {
-            return new List<RegistryCredential>();
+            TryLoadRegistriesLocked(out var list);
+            return list;
         }
     }
 
     public void SaveRegistryCredential(RegistryCredential credential)
     {
-        if (string.IsNullOrWhiteSpace(credential.ServerAddress))
+        if (credential == null || string.IsNullOrWhiteSpace(credential.ServerAddress))
             return;
 
-        var list = GetAllRegistryCredentials();
-        var cleanServer = NormalizeServerAddress(credential.ServerAddress);
-        credential.ServerAddress = cleanServer;
+        lock (_syncLock)
+        {
+            if (!TryLoadRegistriesLocked(out var list))
+            {
+                AppLogger.LogWarning(nameof(CredentialService), "Failed to read existing registry credentials; aborting save to prevent data loss.");
+                return;
+            }
 
-        list.RemoveAll(x => NormalizeServerAddress(x.ServerAddress).Equals(cleanServer, StringComparison.OrdinalIgnoreCase));
-        list.Add(credential);
+            var cleanServer = NormalizeServerAddress(credential.ServerAddress);
+            var copy = new RegistryCredential
+            {
+                ServerAddress = cleanServer,
+                Username = credential.Username,
+                Password = credential.Password,
+                DisplayName = credential.DisplayName
+            };
 
-        SaveAllRegistries(list);
+            list.RemoveAll(x => NormalizeServerAddress(x.ServerAddress).Equals(cleanServer, StringComparison.OrdinalIgnoreCase));
+            list.Add(copy);
+
+            SaveAllRegistriesLocked(list);
+        }
     }
 
     public void DeleteRegistryCredential(string serverAddress)
     {
-        var list = GetAllRegistryCredentials();
-        var cleanServer = NormalizeServerAddress(serverAddress);
-        list.RemoveAll(x => NormalizeServerAddress(x.ServerAddress).Equals(cleanServer, StringComparison.OrdinalIgnoreCase));
-        SaveAllRegistries(list);
+        if (string.IsNullOrWhiteSpace(serverAddress))
+            return;
+
+        lock (_syncLock)
+        {
+            if (!TryLoadRegistriesLocked(out var list))
+            {
+                AppLogger.LogWarning(nameof(CredentialService), "Failed to read existing registry credentials; aborting delete to prevent data loss.");
+                return;
+            }
+
+            var cleanServer = NormalizeServerAddress(serverAddress);
+            list.RemoveAll(x => NormalizeServerAddress(x.ServerAddress).Equals(cleanServer, StringComparison.OrdinalIgnoreCase));
+            SaveAllRegistriesLocked(list);
+        }
     }
 
     public RegistryCredential? GetCredentialForImage(string imageOrServerAddress)
     {
         if (string.IsNullOrWhiteSpace(imageOrServerAddress)) return null;
 
-        var list = GetAllRegistryCredentials();
-        var targetServer = ExtractServerAddress(imageOrServerAddress);
+        lock (_syncLock)
+        {
+            TryLoadRegistriesLocked(out var list);
+            var targetServer = ExtractServerAddress(imageOrServerAddress);
 
-        return list.FirstOrDefault(x => 
-            NormalizeServerAddress(x.ServerAddress).Equals(targetServer, StringComparison.OrdinalIgnoreCase) ||
-            imageOrServerAddress.StartsWith(x.ServerAddress, StringComparison.OrdinalIgnoreCase));
+            return list.FirstOrDefault(x =>
+                NormalizeServerAddress(x.ServerAddress).Equals(targetServer, StringComparison.OrdinalIgnoreCase));
+        }
     }
 
-    private void SaveAllRegistries(List<RegistryCredential> list)
+    private bool TryLoadRegistriesLocked(out List<RegistryCredential> list)
     {
+        list = new List<RegistryCredential>();
+        if (!File.Exists(_registriesFilePath))
+        {
+            return true;
+        }
+
+        var json = ReadEncryptedString(_registriesFilePath, out bool readSucceeded);
+        if (!readSucceeded)
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return true;
+        }
+
         try
         {
-            var json = JsonSerializer.Serialize(list, new JsonSerializerOptions { WriteIndented = true });
-            var plainBytes = Encoding.UTF8.GetBytes(json);
-            var encryptedBytes = ProtectedData.Protect(plainBytes, Entropy, DataProtectionScope.CurrentUser);
-            File.WriteAllBytes(_registriesFilePath, encryptedBytes);
+            list = JsonSerializer.Deserialize<List<RegistryCredential>>(json) ?? new List<RegistryCredential>();
+            return true;
         }
         catch (Exception ex)
         {
-            AppLogger.LogWarning(nameof(CredentialService), "Legacy GitHub token migration failed", ex);
+            AppLogger.LogWarning(nameof(CredentialService), "Failed to deserialize registry credentials", ex);
+            return false;
         }
     }
 
-    private static string NormalizeServerAddress(string address)
+    private void SaveAllRegistriesLocked(List<RegistryCredential> list)
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(list, WriteJsonOptions);
+            WriteEncryptedStringAtomic(_registriesFilePath, json);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.LogWarning(nameof(CredentialService), "Failed to save registry credentials", ex);
+        }
+    }
+
+    private static void WriteEncryptedStringAtomic(string filePath, string plainText)
+    {
+        var plainBytes = Encoding.UTF8.GetBytes(plainText);
+        byte[] encryptedBytes;
+        try
+        {
+            encryptedBytes = ProtectedData.Protect(plainBytes, Entropy, DataProtectionScope.CurrentUser);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(plainBytes);
+        }
+
+        var tmpPath = filePath + ".tmp";
+        File.WriteAllBytes(tmpPath, encryptedBytes);
+        File.Move(tmpPath, filePath, overwrite: true);
+    }
+
+    private static string? ReadEncryptedString(string filePath, out bool readSucceeded)
+    {
+        if (!File.Exists(filePath))
+        {
+            readSucceeded = true;
+            return null;
+        }
+
+        byte[]? plainBytes = null;
+        try
+        {
+            var encryptedBytes = File.ReadAllBytes(filePath);
+            plainBytes = ProtectedData.Unprotect(encryptedBytes, Entropy, DataProtectionScope.CurrentUser);
+            readSucceeded = true;
+            return Encoding.UTF8.GetString(plainBytes);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.LogWarning(nameof(CredentialService), $"Failed to decrypt credential store '{Path.GetFileName(filePath)}'", ex);
+            readSucceeded = false;
+            return null;
+        }
+        finally
+        {
+            if (plainBytes != null)
+            {
+                CryptographicOperations.ZeroMemory(plainBytes);
+            }
+        }
+    }
+
+    private static void DeleteFileSafe(string filePath)
+    {
+        if (!File.Exists(filePath))
+            return;
+
+        try
+        {
+            File.Delete(filePath);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.LogWarning(nameof(CredentialService), $"Failed to delete credential file '{Path.GetFileName(filePath)}'", ex);
+        }
+    }
+
+    internal static string NormalizeServerAddress(string address)
     {
         var clean = address.Trim().ToLowerInvariant();
-        if (clean.StartsWith("https://")) clean = clean[8..];
-        if (clean.StartsWith("http://")) clean = clean[7..];
-        if (clean.EndsWith("/")) clean = clean[..^1];
+        if (clean.StartsWith("https://", StringComparison.Ordinal)) clean = clean[8..];
+        if (clean.StartsWith("http://", StringComparison.Ordinal)) clean = clean[7..];
+        clean = clean.TrimEnd('/');
         return clean;
     }
 
-    private static string ExtractServerAddress(string imageOrServer)
+    internal static string ExtractServerAddress(string imageOrServer)
     {
         var clean = NormalizeServerAddress(imageOrServer);
         if (clean.Contains('/'))
         {
             var firstPart = clean[..clean.IndexOf('/')];
-            if (firstPart.Contains('.') || firstPart.Contains(':'))
+            if (firstPart.Contains('.') || firstPart.Contains(':') || firstPart.Equals("localhost", StringComparison.OrdinalIgnoreCase))
             {
                 return firstPart;
             }
             return "docker.io";
         }
-        return clean;
+        if (clean.Contains('.') || clean.Contains(':') || clean.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            return clean;
+        }
+        return "docker.io";
     }
 }

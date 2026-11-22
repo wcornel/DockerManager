@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using DockerManager.App.Models;
 
 namespace DockerManager.App.Services;
@@ -59,6 +60,10 @@ public class DotnetPublisherService : IDotnetPublisherService
     private readonly ICredentialService _credentialService;
     private readonly HttpClient _httpClient;
 
+    private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+    private static readonly Regex DockerTagRegex = new(@"^[a-zA-Z0-9][a-zA-Z0-9._/:@-]{0,255}$", RegexOptions.Compiled);
+    private static readonly Regex EnvKeyRegex = new(@"^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
+
     public DotnetPublisherService(ISettingsService settingsService, ICredentialService credentialService)
     {
         _settingsService = settingsService;
@@ -66,6 +71,30 @@ public class DotnetPublisherService : IDotnetPublisherService
         _httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "DockerManager-AppPublisher");
     }
+
+    private static string StripNewlinesAndValidate(string? value, string fieldName)
+    {
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+        if (value.Contains('\r') || value.Contains('\n'))
+        {
+            throw new ArgumentException($"Ongeldige regeleinde-tekens in '{fieldName}'.", fieldName);
+        }
+        return value;
+    }
+
+    private static string ValidateDockerTag(string? tag, string fieldName)
+    {
+        if (string.IsNullOrWhiteSpace(tag) ||
+            tag.Contains("..", StringComparison.Ordinal) ||
+            !DockerTagRegex.IsMatch(tag))
+        {
+            throw new ArgumentException($"Ongeldige Docker image tag voor '{fieldName}'.", fieldName);
+        }
+        return tag;
+    }
+
+    private static bool ValidateEnvKey(string? key) =>
+        !string.IsNullOrWhiteSpace(key) && EnvKeyRegex.IsMatch(key);
 
     public bool SaveDockerfileToProjectFolder(string folderPath, string dockerfileContent, AppFrameworkType framework, string fullImageTag, string releaseImageTag, out string? errorMessage)
     {
@@ -78,38 +107,52 @@ public class DotnetPublisherService : IDotnetPublisherService
                 return false;
             }
 
+            var validFullTag = ValidateDockerTag(fullImageTag, nameof(fullImageTag));
+            var validReleaseTag = ValidateDockerTag(releaseImageTag, nameof(releaseImageTag));
+
             var dockerfilePath = Path.Combine(folderPath, "Dockerfile");
-            File.WriteAllText(dockerfilePath, dockerfileContent, Encoding.UTF8);
+            File.WriteAllText(dockerfilePath, dockerfileContent, Utf8NoBom);
 
             var dockerignorePath = Path.Combine(folderPath, ".dockerignore");
             if (!File.Exists(dockerignorePath))
             {
                 var ignoreContent = framework == AppFrameworkType.Python
-                    ? "__pycache__/\n*.pyc\n*.pyo\n*.pyd\n.env\n.venv\nenv/\nvenv/\n.git\n.gitignore\n.idea\n.vscode\n"
-                    : "bin/\nobj/\n.git\n.gitignore\n.idea\n.vs\n*.user\n";
-                File.WriteAllText(dockerignorePath, ignoreContent, Encoding.UTF8);
+                    ? "__pycache__/\n*.pyc\n*.pyo\n*.pyd\n.env\n.env.*\n.venv\nenv/\nvenv/\n.git\n.gitignore\n.idea\n.vscode\n*.pfx\n*.key\n*.pem\ndocker-build.bat\n"
+                    : "bin/\nobj/\n.git\n.gitignore\n.idea\n.vs\n*.user\n.env\n.env.*\nappsettings.Development.json\n*.pfx\n*.key\n*.pem\ndocker-build.bat\n";
+                File.WriteAllText(dockerignorePath, ignoreContent, Utf8NoBom);
             }
 
             var batPath = Path.Combine(folderPath, "docker-build.bat");
             var batContent = $"@echo off\r\n" +
+                             $"chcp 65001 >nul\r\n" +
                              $"echo ===========================================\r\n" +
-                             $"echo   Docker Build ^& Push: {releaseImageTag}\r\n" +
+                             $"echo   Docker Build ^& Push: {validReleaseTag}\r\n" +
                              $"echo ===========================================\r\n\r\n" +
                              $"echo [1/3] Docker Image bouwen met dual-tags...\r\n" +
-                             $"docker build -t \"{releaseImageTag}\" -t \"{fullImageTag}\" .\r\n" +
+                             $"docker build -t \"{validReleaseTag}\" -t \"{validFullTag}\" .\r\n" +
                              $"if %ERRORLEVEL% NEQ 0 (\r\n" +
                              $"    echo ❌ Fout bij docker build!\r\n" +
                              $"    pause\r\n" +
                              $"    exit /b %ERRORLEVEL%\r\n" +
                              $")\r\n\r\n" +
-                             $"echo [2/3] Release tag pushen naar registry ({releaseImageTag})...\r\n" +
-                             $"docker push \"{releaseImageTag}\"\r\n\r\n" +
-                             $"echo [3/3] Latest tag pushen naar registry ({fullImageTag})...\r\n" +
-                             $"docker push \"{fullImageTag}\"\r\n\r\n" +
+                             $"echo [2/3] Release tag pushen naar registry ({validReleaseTag})...\r\n" +
+                             $"docker push \"{validReleaseTag}\"\r\n" +
+                             $"if %ERRORLEVEL% NEQ 0 (\r\n" +
+                             $"    echo ❌ Fout bij pushen van release tag!\r\n" +
+                             $"    pause\r\n" +
+                             $"    exit /b %ERRORLEVEL%\r\n" +
+                             $")\r\n\r\n" +
+                             $"echo [3/3] Latest tag pushen naar registry ({validFullTag})...\r\n" +
+                             $"docker push \"{validFullTag}\"\r\n" +
+                             $"if %ERRORLEVEL% NEQ 0 (\r\n" +
+                             $"    echo ❌ Fout bij pushen van latest tag!\r\n" +
+                             $"    pause\r\n" +
+                             $"    exit /b %ERRORLEVEL%\r\n" +
+                             $")\r\n\r\n" +
                              $"echo.\r\n" +
                              $"echo 🎉 Succesvol gebouwd en gepusht!\r\n" +
                              $"pause\r\n";
-            File.WriteAllText(batPath, batContent, Encoding.UTF8);
+            File.WriteAllText(batPath, batContent, Utf8NoBom);
 
             return true;
         }
@@ -122,12 +165,14 @@ public class DotnetPublisherService : IDotnetPublisherService
 
     public string GenerateDockerfile(PublishRequest request)
     {
+        var appName = StripNewlinesAndValidate(request.AppName, nameof(request.AppName));
+        var baseImage = StripNewlinesAndValidate(request.BaseDockerImage, nameof(request.BaseDockerImage));
         var sb = new StringBuilder();
 
         if (request.Framework == AppFrameworkType.Python)
         {
-            sb.AppendLine($"# Dockerfile gegenereerd door DockerManager voor {request.AppName} (Python)");
-            sb.AppendLine($"FROM {request.BaseDockerImage} AS runtime");
+            sb.AppendLine($"# Dockerfile gegenereerd door DockerManager voor {appName} (Python)");
+            sb.AppendLine($"FROM {baseImage} AS runtime");
             sb.AppendLine("WORKDIR /app");
             sb.AppendLine();
 
@@ -163,7 +208,7 @@ public class DotnetPublisherService : IDotnetPublisherService
                 sb.AppendLine("# Geconfigureerde omgevingsvariabelen:");
                 foreach (var p in request.SelectedParameters)
                 {
-                    if (p.IsSelected && !string.IsNullOrWhiteSpace(p.DockerEnvKey))
+                    if (p.IsSelected && ValidateEnvKey(p.DockerEnvKey))
                     {
                         sb.AppendLine($"ENV {p.DockerEnvKey}=\"\"");
                     }
@@ -173,12 +218,12 @@ public class DotnetPublisherService : IDotnetPublisherService
 
             sb.AppendLine($"EXPOSE {request.ContainerPort}");
 
-            // Format CMD as JSON array or shell command
-            var cmdParts = Helpers.CommandLineHelper.ParseCommandLine(request.StartCommand);
+            // Format CMD as JSON exec-form array
+            var startCmd = StripNewlinesAndValidate(request.StartCommand, nameof(request.StartCommand));
+            var cmdParts = Helpers.CommandLineHelper.ParseCommandLine(startCmd);
             if (cmdParts != null && cmdParts.Count > 0)
             {
-                var quoted = string.Join(", ", cmdParts.Select(p => $"\"{p}\""));
-                sb.AppendLine($"CMD [{quoted}]");
+                sb.AppendLine($"CMD {JsonSerializer.Serialize(cmdParts)}");
             }
             else
             {
@@ -188,8 +233,9 @@ public class DotnetPublisherService : IDotnetPublisherService
         else
         {
             // .NET Dockerfile
-            sb.AppendLine($"# Dockerfile gegenereerd door DockerManager voor {request.AppName} (.NET)");
-            sb.AppendLine($"FROM {request.BaseDockerImage} AS runtime");
+            var entrypointDll = StripNewlinesAndValidate(request.EntrypointDll, nameof(request.EntrypointDll));
+            sb.AppendLine($"# Dockerfile gegenereerd door DockerManager voor {appName} (.NET)");
+            sb.AppendLine($"FROM {baseImage} AS runtime");
             sb.AppendLine("WORKDIR /app");
             sb.AppendLine();
 
@@ -215,19 +261,19 @@ public class DotnetPublisherService : IDotnetPublisherService
 
             if (request.SelectedParameters != null && request.SelectedParameters.Count > 0)
             {
-                sb.AppendLine("# Geconfigureerde omgevingsvariabelen voor appsettings.json overrides:");
+                sb.AppendLine("# Geconfigureerde omgevingsvariabelen voor appsettings.json overrides (vul waarden in via DockerManager UI):");
                 foreach (var p in request.SelectedParameters)
                 {
-                    if (p.IsSelected && !string.IsNullOrWhiteSpace(p.DockerEnvKey))
+                    if (p.IsSelected && ValidateEnvKey(p.DockerEnvKey))
                     {
-                        sb.AppendLine($"# ENV {p.DockerEnvKey}=\"{p.CurrentValue}\"");
+                        sb.AppendLine($"# ENV {p.DockerEnvKey}=\"\"");
                     }
                 }
                 sb.AppendLine();
             }
 
             sb.AppendLine($"EXPOSE {request.ContainerPort}");
-            sb.AppendLine($"ENTRYPOINT [\"dotnet\", \"{request.EntrypointDll}\"]");
+            sb.AppendLine($"ENTRYPOINT {JsonSerializer.Serialize(new[] { "dotnet", entrypointDll })}");
         }
 
         return sb.ToString();
@@ -254,6 +300,9 @@ public class DotnetPublisherService : IDotnetPublisherService
 
         try
         {
+            ValidateDockerTag(fullImageTag, nameof(fullImageTag));
+            ValidateDockerTag(releaseImageTag, nameof(releaseImageTag));
+
             // 1. Save Dockerfile, .dockerignore and docker-build.bat in project folder
             progress?.Report($"[1/{(pushToRegistry ? 2 : 1)}] Dockerfile en .dockerignore gereedmaken in projectmap...");
             SaveDockerfileToProjectFolder(request.SourceFolderPath, dockerfileContent, request.Framework, fullImageTag, releaseImageTag, out var saveErr);
@@ -266,8 +315,7 @@ public class DotnetPublisherService : IDotnetPublisherService
 
             // 2. Run docker build
             progress?.Report($"[1/{(pushToRegistry ? 2 : 1)}] Docker image lokaal bouwen: '{releaseImageTag}' & latest...");
-            var buildArgs = $"build -t \"{releaseImageTag}\" -t \"{fullImageTag}\" .";
-            var buildResult = await RunProcessAsync(dockerCli, buildArgs, request.SourceFolderPath, progress, ct);
+            var buildResult = await RunProcessAsync(dockerCli, new[] { "build", "-t", releaseImageTag, "-t", fullImageTag, "." }, request.SourceFolderPath, progress, ct);
 
             if (!buildResult.Success)
             {
@@ -289,11 +337,22 @@ public class DotnetPublisherService : IDotnetPublisherService
                 if (cred != null && !string.IsNullOrWhiteSpace(cred.Password))
                 {
                     var user = !string.IsNullOrWhiteSpace(cred.Username) ? cred.Username : "token";
-                    await RunDockerLoginAsync(dockerCli, reg, user, cred.Password, ct);
+                    var (loginOk, loginErr) = await RunDockerLoginAsync(dockerCli, reg, user, cred.Password, ct);
+                    if (!loginOk)
+                    {
+                        return new PublishResult
+                        {
+                            Success = false,
+                            ErrorMessage = $"Docker login mislukt voor '{reg}': {loginErr}",
+                            ImageTag = fullImageTag,
+                            ReleaseTag = releaseImageTag,
+                            GeneratedDockerfile = dockerfileContent
+                        };
+                    }
                 }
 
                 progress?.Report($"Pushen van release tag '{releaseImageTag}'...");
-                var pushRelease = await RunProcessAsync(dockerCli, $"push \"{releaseImageTag}\"", request.SourceFolderPath, progress, ct);
+                var pushRelease = await RunProcessAsync(dockerCli, new[] { "push", releaseImageTag }, request.SourceFolderPath, progress, ct);
                 if (!pushRelease.Success)
                 {
                     return new PublishResult
@@ -307,7 +366,7 @@ public class DotnetPublisherService : IDotnetPublisherService
                 }
 
                 progress?.Report($"Pushen van latest tag '{fullImageTag}'...");
-                var pushLatest = await RunProcessAsync(dockerCli, $"push \"{fullImageTag}\"", request.SourceFolderPath, progress, ct);
+                var pushLatest = await RunProcessAsync(dockerCli, new[] { "push", fullImageTag }, request.SourceFolderPath, progress, ct);
                 if (!pushLatest.Success)
                 {
                     return new PublishResult
@@ -365,20 +424,20 @@ public class DotnetPublisherService : IDotnetPublisherService
 
     private static async Task<(bool Success, string Output, string Error)> RunProcessAsync(
         string fileName,
-        string arguments,
+        IEnumerable<string> arguments,
         string workingDirectory,
         IProgress<string>? progress,
         CancellationToken ct)
     {
         var outputBuilder = new StringBuilder();
         var errorBuilder = new StringBuilder();
+        var bufferLock = new object();
 
         try
         {
             var psi = new ProcessStartInfo
             {
                 FileName = fileName,
-                Arguments = arguments,
                 WorkingDirectory = workingDirectory,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -386,13 +445,21 @@ public class DotnetPublisherService : IDotnetPublisherService
                 CreateNoWindow = true
             };
 
+            foreach (var arg in arguments)
+            {
+                psi.ArgumentList.Add(arg);
+            }
+
             using var process = new Process { StartInfo = psi };
 
             process.OutputDataReceived += (_, e) =>
             {
                 if (!string.IsNullOrWhiteSpace(e.Data))
                 {
-                    outputBuilder.AppendLine(e.Data);
+                    lock (bufferLock)
+                    {
+                        outputBuilder.AppendLine(e.Data);
+                    }
                     progress?.Report(e.Data.Trim());
                 }
             };
@@ -401,7 +468,10 @@ public class DotnetPublisherService : IDotnetPublisherService
             {
                 if (!string.IsNullOrWhiteSpace(e.Data))
                 {
-                    errorBuilder.AppendLine(e.Data);
+                    lock (bufferLock)
+                    {
+                        errorBuilder.AppendLine(e.Data);
+                    }
                     progress?.Report(e.Data.Trim());
                 }
             };
@@ -411,19 +481,43 @@ public class DotnetPublisherService : IDotnetPublisherService
                 return (false, "", "Kon het proces niet starten.");
             }
 
+            using var reg = ct.Register(() =>
+            {
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                }
+                catch { }
+            });
+
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
 
             await process.WaitForExitAsync(ct);
+            process.WaitForExit();
 
             var success = process.ExitCode == 0;
-            var err = errorBuilder.ToString().Trim();
-            if (string.IsNullOrWhiteSpace(err) && !success)
+            string outStr;
+            string errStr;
+            lock (bufferLock)
             {
-                err = outputBuilder.ToString().Trim();
+                outStr = outputBuilder.ToString();
+                errStr = errorBuilder.ToString().Trim();
             }
 
-            return (success, outputBuilder.ToString(), err);
+            if (string.IsNullOrWhiteSpace(errStr) && !success)
+            {
+                errStr = outStr.Trim();
+            }
+
+            return (success, outStr, errStr);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (System.ComponentModel.Win32Exception)
         {
@@ -435,30 +529,74 @@ public class DotnetPublisherService : IDotnetPublisherService
         }
     }
 
-    private static async Task RunDockerLoginAsync(string dockerCli, string registry, string username, string password, CancellationToken ct)
+    private static async Task<(bool Success, string Error)> RunDockerLoginAsync(string dockerCli, string registry, string username, string password, CancellationToken ct)
     {
         try
         {
+            if (registry.Contains('\r') || registry.Contains('\n') || username.Contains('\r') || username.Contains('\n'))
+            {
+                return (false, "Ongeldige tekens in registry of gebruikersnaam.");
+            }
+
             var psi = new ProcessStartInfo
             {
                 FileName = dockerCli,
-                Arguments = $"login --username \"{username}\" --password-stdin \"{registry}\"",
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            psi.ArgumentList.Add("login");
+            psi.ArgumentList.Add("--username");
+            psi.ArgumentList.Add(username);
+            psi.ArgumentList.Add("--password-stdin");
+            psi.ArgumentList.Add(registry);
 
             using var process = new Process { StartInfo = psi };
-            if (process.Start())
+            if (!process.Start())
             {
-                await process.StandardInput.WriteLineAsync(password.AsMemory(), ct);
-                process.StandardInput.Close();
-                await process.WaitForExitAsync(ct);
+                return (false, "Kon docker login proces niet starten.");
             }
+
+            using var reg = ct.Register(() =>
+            {
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                }
+                catch { }
+            });
+
+            var stdOutTask = process.StandardOutput.ReadToEndAsync(ct);
+            var stdErrTask = process.StandardError.ReadToEndAsync(ct);
+
+            await process.StandardInput.WriteAsync(password.AsMemory(), ct);
+            process.StandardInput.Close();
+
+            await process.WaitForExitAsync(ct);
+            var stdOut = await stdOutTask;
+            var stdErr = await stdErrTask;
+
+            if (process.ExitCode == 0)
+            {
+                return (true, string.Empty);
+            }
+
+            var errMsg = !string.IsNullOrWhiteSpace(stdErr) ? stdErr.Trim() : stdOut.Trim();
+            return (false, string.IsNullOrWhiteSpace(errMsg) ? $"Exitcode {process.ExitCode}" : errMsg);
         }
-        catch { }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
     }
 
     public async Task<PublishResult> PublishAppToGitHubAsync(PublishRequest request, IProgress<string>? progress = null, CancellationToken ct = default)
@@ -653,13 +791,29 @@ jobs:
                 part.Equals(".venv", StringComparison.OrdinalIgnoreCase) ||
                 part.Equals("venv", StringComparison.OrdinalIgnoreCase) ||
                 part.Equals("env", StringComparison.OrdinalIgnoreCase) ||
-                part.Equals("__pycache__", StringComparison.OrdinalIgnoreCase))
+                part.Equals("__pycache__", StringComparison.OrdinalIgnoreCase) ||
+                part.Equals("node_modules", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
         }
+
+        var fileName = Path.GetFileName(normalized);
+        if (fileName.Equals(".env", StringComparison.OrdinalIgnoreCase) ||
+            fileName.Equals(".env.local", StringComparison.OrdinalIgnoreCase) ||
+            fileName.Equals(".env.development", StringComparison.OrdinalIgnoreCase) ||
+            fileName.Equals(".env.production", StringComparison.OrdinalIgnoreCase) ||
+            fileName.Equals("appsettings.Development.json", StringComparison.OrdinalIgnoreCase) ||
+            fileName.Equals("appsettings.Local.json", StringComparison.OrdinalIgnoreCase) ||
+            fileName.Equals("secrets.json", StringComparison.OrdinalIgnoreCase) ||
+            fileName.Equals("docker-build.bat", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
         var ext = Path.GetExtension(normalized).ToLowerInvariant();
-        if (ext == ".pyc" || ext == ".pyo" || ext == ".pyd" || ext == ".user" || ext == ".suo")
+        if (ext == ".pyc" || ext == ".pyo" || ext == ".pyd" || ext == ".user" || ext == ".suo" ||
+            ext == ".pfx" || ext == ".key" || ext == ".pem" || ext == ".p12")
         {
             return false;
         }
@@ -672,9 +826,14 @@ jobs:
         var dockerfilePath = $"apps/{appName}/Dockerfile";
         await PutGitHubFileAsync(owner, repo, branch, dockerfilePath, dockerfileContent, $"Update Dockerfile for {appName}", token, ct);
 
-        // 2. Upload files in project directory (excluding binaries, obj, venv, cache)
+        // 2. Upload files in project directory (excluding binaries, obj, venv, cache, secrets, and root Dockerfile)
         var allFiles = Directory.GetFiles(sourceFolder, "*.*", SearchOption.AllDirectories)
-            .Where(f => IsPublishableAppFile(Path.GetRelativePath(sourceFolder, f)))
+            .Where(f =>
+            {
+                var rel = Path.GetRelativePath(sourceFolder, f);
+                return !rel.Replace('\\', '/').Equals("Dockerfile", StringComparison.OrdinalIgnoreCase) &&
+                       IsPublishableAppFile(rel);
+            })
             .ToArray();
 
         var total = allFiles.Length;

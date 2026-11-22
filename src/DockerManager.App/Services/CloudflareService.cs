@@ -124,7 +124,7 @@ public class CloudflareService : ICloudflareService
                 return (false, "Cloudflare Account ID ontbreekt.", tunnels);
             }
 
-            var url = $"{BaseApiUrl}/accounts/{accountId.Trim()}/cfd_tunnel?is_deleted=false&per_page=50";
+            var url = $"{BaseApiUrl}/accounts/{Uri.EscapeDataString(accountId.Trim())}/cfd_tunnel?is_deleted=false&per_page=50";
             using var req = CreateRequest(HttpMethod.Get, url, token);
             var response = await _httpClient.SendAsync(req, ct);
             var json = await response.Content.ReadAsStringAsync(ct);
@@ -198,7 +198,7 @@ public class CloudflareService : ICloudflareService
             System.Security.Cryptography.RandomNumberGenerator.Fill(secretBytes);
             var secretBase64 = Convert.ToBase64String(secretBytes);
 
-            var url = $"{BaseApiUrl}/accounts/{accountId.Trim()}/cfd_tunnel";
+            var url = $"{BaseApiUrl}/accounts/{Uri.EscapeDataString(accountId.Trim())}/cfd_tunnel";
             using var req = CreateRequest(HttpMethod.Post, url, token);
 
             var payload = new
@@ -241,7 +241,7 @@ public class CloudflareService : ICloudflareService
             // Initialize default empty ingress rule (404 fallback)
             try
             {
-                var cfgUrl = $"{BaseApiUrl}/accounts/{accountId.Trim()}/cfd_tunnel/{id}/configurations";
+                var cfgUrl = $"{BaseApiUrl}/accounts/{Uri.EscapeDataString(accountId.Trim())}/cfd_tunnel/{Uri.EscapeDataString(id)}/configurations";
                 using var cfgReq = CreateRequest(HttpMethod.Put, cfgUrl, token);
                 var cfgPayload = new
                 {
@@ -289,7 +289,7 @@ public class CloudflareService : ICloudflareService
             if (string.IsNullOrWhiteSpace(accountId)) return (false, "Cloudflare Account ID ontbreekt.");
             if (string.IsNullOrWhiteSpace(tunnelId)) return (false, "Tunnel ID ontbreekt.");
 
-            var url = $"{BaseApiUrl}/accounts/{accountId.Trim()}/cfd_tunnel/{tunnelId.Trim()}?cascade=true";
+            var url = $"{BaseApiUrl}/accounts/{Uri.EscapeDataString(accountId.Trim())}/cfd_tunnel/{Uri.EscapeDataString(tunnelId.Trim())}?cascade=true";
             using var req = CreateRequest(HttpMethod.Delete, url, token);
             var response = await _httpClient.SendAsync(req, ct);
             var json = await response.Content.ReadAsStringAsync(ct);
@@ -340,7 +340,7 @@ public class CloudflareService : ICloudflareService
                 return (false, "Cloudflare Tunnel ID ontbreekt.", null);
             }
 
-            var url = $"{BaseApiUrl}/accounts/{accountId.Trim()}/cfd_tunnel/{tunnelId.Trim()}";
+            var url = $"{BaseApiUrl}/accounts/{Uri.EscapeDataString(accountId.Trim())}/cfd_tunnel/{Uri.EscapeDataString(tunnelId.Trim())}";
             using var req = CreateRequest(HttpMethod.Get, url, token);
             var response = await _httpClient.SendAsync(req, ct);
             var json = await response.Content.ReadAsStringAsync(ct);
@@ -393,7 +393,7 @@ public class CloudflareService : ICloudflareService
                 return null;
             }
 
-            var url = $"{BaseApiUrl}/accounts/{accountId.Trim()}/cfd_tunnel/{tunnelId.Trim()}/token";
+            var url = $"{BaseApiUrl}/accounts/{Uri.EscapeDataString(accountId.Trim())}/cfd_tunnel/{Uri.EscapeDataString(tunnelId.Trim())}/token";
             using var req = CreateRequest(HttpMethod.Get, url, token);
             var response = await _httpClient.SendAsync(req, ct);
             if (!response.IsSuccessStatusCode) return null;
@@ -415,7 +415,7 @@ public class CloudflareService : ICloudflareService
         try
         {
             var cleanDomain = domain.Trim().ToLowerInvariant();
-            var url = $"{BaseApiUrl}/zones?name={cleanDomain}";
+            var url = $"{BaseApiUrl}/zones?name={Uri.EscapeDataString(cleanDomain)}";
             using var req = CreateRequest(HttpMethod.Get, url, token);
             var response = await _httpClient.SendAsync(req, ct);
             if (!response.IsSuccessStatusCode) return null;
@@ -474,7 +474,8 @@ public class CloudflareService : ICloudflareService
         }
 
         var cleanSub = subdomain.Trim().ToLowerInvariant();
-        var fullHostname = cleanSub.EndsWith(domain, StringComparison.OrdinalIgnoreCase)
+        var fullHostname = cleanSub.Equals(domain, StringComparison.OrdinalIgnoreCase) ||
+                           cleanSub.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase)
             ? cleanSub
             : $"{cleanSub}.{domain}";
 
@@ -483,7 +484,7 @@ public class CloudflareService : ICloudflareService
         try
         {
             // 1. Update Ingress configuration in Cloudflare Tunnel
-            var configUrl = $"{BaseApiUrl}/accounts/{accountId}/cfd_tunnel/{tunnelId}/configurations";
+            var configUrl = $"{BaseApiUrl}/accounts/{Uri.EscapeDataString(accountId)}/cfd_tunnel/{Uri.EscapeDataString(tunnelId)}/configurations";
             using var getReq = CreateRequest(HttpMethod.Get, configUrl, token);
             var getResp = await _httpClient.SendAsync(getReq, ct);
             var getConfigJson = await getResp.Content.ReadAsStringAsync(ct);
@@ -576,7 +577,7 @@ public class CloudflareService : ICloudflareService
             var zoneId = await GetZoneIdAsync(domain, token, ct);
             if (!string.IsNullOrWhiteSpace(zoneId))
             {
-                var dnsQueryUrl = $"{BaseApiUrl}/zones/{zoneId}/dns_records?type=CNAME&name={fullHostname}";
+                var dnsQueryUrl = $"{BaseApiUrl}/zones/{Uri.EscapeDataString(zoneId)}/dns_records?type=CNAME&name={Uri.EscapeDataString(fullHostname)}";
                 using var dnsGetReq = CreateRequest(HttpMethod.Get, dnsQueryUrl, token);
                 var dnsGetResp = await _httpClient.SendAsync(dnsGetReq, ct);
                 var dnsGetJson = await dnsGetResp.Content.ReadAsStringAsync(ct);
@@ -605,7 +606,7 @@ public class CloudflareService : ICloudflareService
                 var targetCname = $"{tunnelId}.cfargotunnel.com";
                 if (!recordExists)
                 {
-                    var postDnsUrl = $"{BaseApiUrl}/zones/{zoneId}/dns_records";
+                    var postDnsUrl = $"{BaseApiUrl}/zones/{Uri.EscapeDataString(zoneId)}/dns_records";
                     var dnsPayload = new JsonObject
                     {
                         ["type"] = "CNAME",
@@ -628,7 +629,7 @@ public class CloudflareService : ICloudflareService
                 else if (!string.IsNullOrWhiteSpace(existingRecordId) && !string.Equals(existingContent, targetCname, StringComparison.OrdinalIgnoreCase))
                 {
                     // Record exists but points to another tunnel: update it seamlessly to the new tunnel!
-                    var putDnsUrl = $"{BaseApiUrl}/zones/{zoneId}/dns_records/{existingRecordId}";
+                    var putDnsUrl = $"{BaseApiUrl}/zones/{Uri.EscapeDataString(zoneId)}/dns_records/{Uri.EscapeDataString(existingRecordId)}";
                     var dnsPayload = new JsonObject
                     {
                         ["type"] = "CNAME",
@@ -707,7 +708,7 @@ public class CloudflareService : ICloudflareService
         // 1. Remove from Tunnel configuration (Ingress)
         try
         {
-            var configUrl = $"{BaseApiUrl}/accounts/{accountId}/cfd_tunnel/{tunnelId}/configurations";
+            var configUrl = $"{BaseApiUrl}/accounts/{Uri.EscapeDataString(accountId)}/cfd_tunnel/{Uri.EscapeDataString(tunnelId)}/configurations";
             using var getReq = CreateRequest(HttpMethod.Get, configUrl, token);
             var getResp = await _httpClient.SendAsync(getReq, ct);
             if (getResp.IsSuccessStatusCode)
@@ -777,7 +778,7 @@ public class CloudflareService : ICloudflareService
             var zoneId = await GetZoneIdAsync(domain, token, ct);
             if (!string.IsNullOrWhiteSpace(zoneId))
             {
-                var dnsQueryUrl = $"{BaseApiUrl}/zones/{zoneId}/dns_records?type=CNAME&name={fullHostname}";
+                var dnsQueryUrl = $"{BaseApiUrl}/zones/{Uri.EscapeDataString(zoneId)}/dns_records?type=CNAME&name={Uri.EscapeDataString(fullHostname)}";
                 using var dnsGetReq = CreateRequest(HttpMethod.Get, dnsQueryUrl, token);
                 var dnsGetResp = await _httpClient.SendAsync(dnsGetReq, ct);
                 if (dnsGetResp.IsSuccessStatusCode)
@@ -793,7 +794,7 @@ public class CloudflareService : ICloudflareService
                                 var recordId = idElem.GetString();
                                 if (!string.IsNullOrWhiteSpace(recordId))
                                 {
-                                    var deleteUrl = $"{BaseApiUrl}/zones/{zoneId}/dns_records/{recordId}";
+                                    var deleteUrl = $"{BaseApiUrl}/zones/{Uri.EscapeDataString(zoneId)}/dns_records/{Uri.EscapeDataString(recordId)}";
                                     using var delReq = CreateRequest(HttpMethod.Delete, deleteUrl, token);
                                     var delResp = await _httpClient.SendAsync(delReq, ct);
                                     if (delResp.IsSuccessStatusCode)
@@ -828,6 +829,7 @@ public class CloudflareService : ICloudflareService
     {
         if (profile == null) return false;
 
+        var server = _settingsService.Settings.GetActiveServer();
         var token = customTunnelToken;
         if (string.IsNullOrWhiteSpace(token))
         {
@@ -835,17 +837,31 @@ public class CloudflareService : ICloudflareService
         }
         if (string.IsNullOrWhiteSpace(token))
         {
-            var server = _settingsService.Settings.GetActiveServer();
             token = server?.CloudflareTunnelToken;
+        }
+        if (string.IsNullOrWhiteSpace(token) && server != null && !string.IsNullOrWhiteSpace(server.Id))
+        {
+            token = _credentialService.GetServerCloudflareTunnelToken(server.Id);
         }
         if (string.IsNullOrWhiteSpace(token))
         {
             token = _settingsService.Settings.CloudflareTunnelToken;
         }
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            token = _credentialService.GetCloudflareTunnelToken();
+        }
 
         if (string.IsNullOrWhiteSpace(token))
         {
             return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(customTunnelToken))
+        {
+            var trimmed = customTunnelToken.Trim();
+            _credentialService.SaveCloudflareTunnelToken(trimmed);
+            _settingsService.Settings.CloudflareTunnelToken = trimmed;
         }
 
         // Check if cloudflared is already in the profile
@@ -855,8 +871,8 @@ public class CloudflareService : ICloudflareService
 
         if (existing != null)
         {
-            // Update token command if needed
-            existing.Command = new List<string> { "tunnel", "--no-autoupdate", "run", "--token", token.Trim() };
+            // Always store placeholder rather than raw token in profile JSON
+            existing.Command = new List<string> { "tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARE_TUNNEL_TOKEN}" };
             return false;
         }
 
@@ -869,7 +885,7 @@ public class CloudflareService : ICloudflareService
             Description = "Cloudflare Zero Trust tunnel agent voor beveiligde publieke toegang en webhooks",
             RestartPolicy = "unless-stopped",
             NetworkMode = "host",
-            Command = new List<string> { "tunnel", "--no-autoupdate", "run", "--token", token.Trim() }
+            Command = new List<string> { "tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARE_TUNNEL_TOKEN}" }
         };
 
         profile.Services.Add(cloudflaredService);

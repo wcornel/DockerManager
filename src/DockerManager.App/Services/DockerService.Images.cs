@@ -35,18 +35,19 @@ public partial class DockerService
         // Fallback to profile-level registry configuration if not found in credential store
         if ((cred == null || string.IsNullOrWhiteSpace(cred.Password)) && registryConfig != null && !string.IsNullOrWhiteSpace(registryConfig.Password))
         {
-            var server = string.IsNullOrWhiteSpace(registryConfig.Server) ? "ghcr.io" : registryConfig.Server.Trim();
-            if (imageName.StartsWith(server, StringComparison.OrdinalIgnoreCase) ||
-                (server.Contains("ghcr.io", StringComparison.OrdinalIgnoreCase) && imageName.Contains("ghcr.io", StringComparison.OrdinalIgnoreCase)))
+            var rawServer = string.IsNullOrWhiteSpace(registryConfig.Server) ? "ghcr.io" : registryConfig.Server.Trim();
+            var normalizedConfigServer = CredentialService.NormalizeServerAddress(rawServer);
+            var targetRegistryServer = CredentialService.ExtractServerAddress(imageName);
+            if (targetRegistryServer.Equals(normalizedConfigServer, StringComparison.OrdinalIgnoreCase))
             {
                 cred = new RegistryCredential
                 {
-                    ServerAddress = server,
+                    ServerAddress = normalizedConfigServer,
                     Username = !string.IsNullOrWhiteSpace(registryConfig.Username) 
                         ? registryConfig.Username 
                         : (!string.IsNullOrWhiteSpace(registryConfig.Namespace) ? registryConfig.Namespace : _settingsService.Settings.GitHubRepoOwner),
                     Password = registryConfig.Password,
-                    DisplayName = server
+                    DisplayName = normalizedConfigServer
                 };
             }
         }

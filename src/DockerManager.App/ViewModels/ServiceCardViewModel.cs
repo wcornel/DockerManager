@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Text;
+using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DockerManager.App.Models;
@@ -295,25 +297,48 @@ public partial class ServiceCardViewModel : ObservableObject, IDisposable
         }
     }
 
+    private static readonly Regex ValidContainerNameRegex = new(@"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$", RegexOptions.Compiled);
+    private static readonly char[] ForbiddenShellChars = ['\'', '"', ';', '$', '`', '&', '|', '<', '>', '\r', '\n'];
+
     [RelayCommand]
     private void OpenTerminal()
     {
         try
         {
-            var hostArg = "";
+            if (string.IsNullOrWhiteSpace(ContainerName) || !ValidContainerNameRegex.IsMatch(ContainerName))
+            {
+                LogActivity("Kon terminal niet starten: ongeldige containernaam.");
+                return;
+            }
+
+            string? validatedTcpUrl = null;
             var settings = _settingsService.Settings;
             var activeServer = settings.GetActiveServer();
             if (activeServer.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(activeServer.TcpUrl))
             {
-                hostArg = $"-H {activeServer.TcpUrl} ";
+                var rawUrl = activeServer.TcpUrl.Trim();
+                if (!Uri.TryCreate(rawUrl, UriKind.Absolute, out var parsedUri) ||
+                    (parsedUri.Scheme != "tcp" && parsedUri.Scheme != Uri.UriSchemeHttp && parsedUri.Scheme != Uri.UriSchemeHttps) ||
+                    rawUrl.Any(c => char.IsWhiteSpace(c) || char.IsControl(c) || ForbiddenShellChars.Contains(c)))
+                {
+                    LogActivity("Kon terminal niet starten: ongeldige Docker TCP URL.");
+                    return;
+                }
+                validatedTcpUrl = rawUrl;
             }
 
-            var script = $"Write-Host '== Verbinding maken met {ContainerName} ==' -ForegroundColor Cyan; docker {hostArg}exec -it {ContainerName} sh -c \\\"if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi\\\"";
+            var escapedContainer = ContainerName.Replace("'", "''");
+            var hostSegment = string.IsNullOrWhiteSpace(validatedTcpUrl)
+                ? string.Empty
+                : $"-H '{validatedTcpUrl.Replace("'", "''")}' ";
+
+            var script = $"Write-Host '== Verbinding maken met {escapedContainer} ==' -ForegroundColor Cyan; docker {hostSegment}exec -it '{escapedContainer}' sh -c 'if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi'";
+            var encodedCommand = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
 
             Process.Start(new ProcessStartInfo
             {
                 FileName = "powershell.exe",
-                Arguments = $"-NoExit -Command \"{script}\"",
+                Arguments = $"-NoExit -EncodedCommand {encodedCommand}",
                 UseShellExecute = true
             });
 

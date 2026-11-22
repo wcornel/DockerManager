@@ -34,9 +34,7 @@ public class AppUpdateService : IAppUpdateService
     private UpdateManager GetUpdateManager()
     {
         const string repoUrl = "https://github.com/wcornel/DockerManager";
-        var token = _credentialService.GetGitHubToken();
-
-        var source = new GithubSource(repoUrl, token, prerelease: false);
+        var source = new GithubSource(repoUrl, accessToken: null, prerelease: false);
         return new UpdateManager(source);
     }
 

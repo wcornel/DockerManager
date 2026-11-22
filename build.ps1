@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Build script voor DockerManager (.NET 10 WPF & Velopack)
 #>
@@ -16,6 +16,8 @@ param (
 
 $ErrorActionPreference = "Stop"
 
+Push-Location $PSScriptRoot
+try {
 if ($Publish) {
     $Release = $true
 }
@@ -32,6 +34,23 @@ if (Test-Path "$ReleasesDir\releases.win.json") {
                 if ($vStr -match '^\d+(\.\d+)+') {
                     $parsed = [version]$matches[0]
                     if ($parsed -ge $highestVersion) {
+                        $highestVersion = $parsed
+                        $foundExisting = $true
+                    }
+                }
+            }
+        }
+    } catch { }
+}
+
+if (-not $foundExisting) {
+    try {
+        $gitTags = git tag --list "v*" --sort=-v:refname 2>$null
+        if ($LASTEXITCODE -eq 0 -and $gitTags) {
+            foreach ($tag in $gitTags) {
+                if ("$tag" -match '^v?(\d+\.\d+\.\d+)') {
+                    $parsed = [version]$matches[1]
+                    if (-not $foundExisting -or $parsed -gt $highestVersion) {
                         $highestVersion = $parsed
                         $foundExisting = $true
                     }
@@ -110,13 +129,13 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # 4. Profiles
-Write-Host "[4/5] Profielen kopiëren naar publish map..." -ForegroundColor Yellow
-if (Test-Path "profiles") {
+Write-Host "[4/5] Voorbeeldprofiel kopiëren naar publish map..." -ForegroundColor Yellow
+if (Test-Path "profiles\example.json") {
     $targetProfilesDir = Join-Path $OutputDir "profiles"
     if (-not (Test-Path $targetProfilesDir)) {
         New-Item -ItemType Directory -Path $targetProfilesDir -Force | Out-Null
     }
-    Copy-Item -Path "profiles\*" -Destination $targetProfilesDir -Recurse -Force
+    Copy-Item -Path "profiles\example.json" -Destination (Join-Path $targetProfilesDir "example.json") -Force
 }
 
 # 5. Velopack
@@ -127,7 +146,11 @@ if ($Release) {
     }
 
     try {
-        vpk pack -u DockerManager -v $Version -p $OutputDir -e "DockerManager.App.exe" -o $ReleasesDir --icon "src/DockerManager.App/app.ico"
+        vpk pack -u DockerManager -v $Version -p $OutputDir -e "DockerManager.App.exe" -o $ReleasesDir --framework net10.0-x64-desktop --icon "src/DockerManager.App/app.ico"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "FOUT: vpk pack mislukt met exitcode $LASTEXITCODE" -ForegroundColor Red
+            exit $LASTEXITCODE
+        }
         Write-Host "Velopack pakket v$Version succesvol aangemaakt in '$ReleasesDir'!" -ForegroundColor Green
 
         $setupSource = Join-Path $ReleasesDir "DockerManager-win-Setup.exe"
@@ -136,7 +159,8 @@ if ($Release) {
             Copy-Item $setupSource $setupDest -Force
         }
     } catch {
-        Write-Host "Waarschuwing: Velopack pack kon niet worden voltooid: $_" -ForegroundColor Yellow
+        Write-Host "FOUT: Velopack pack kon niet worden voltooid: $_" -ForegroundColor Red
+        exit 1
     }
 
     if ($Publish) {
@@ -192,10 +216,12 @@ if ($Release) {
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "Release v$Version staat live op GitHub Releases!" -ForegroundColor Green
             } else {
-                Write-Host "Waarschuwing: vpk upload github gaf exitcode $LASTEXITCODE" -ForegroundColor Yellow
+                Write-Host "FOUT: vpk upload github mislukt met exitcode $LASTEXITCODE" -ForegroundColor Red
+                exit $LASTEXITCODE
             }
         } catch {
             Write-Host "Fout bij uploaden naar GitHub: $_" -ForegroundColor Red
+            exit 1
         }
     }
 } else {
@@ -217,3 +243,7 @@ if (Test-Path $ExePath) {
     Write-Host "  [PORTABLE]  $ExePath ($SizeMb MB)  --> DIRECT UITVOERBAAR" -ForegroundColor Green
 }
 Write-Host "=========================================" -ForegroundColor Green
+}
+finally {
+    Pop-Location
+}

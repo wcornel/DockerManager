@@ -24,6 +24,9 @@ public class DialogTests
         Exception? threadException = null;
         var thread = new Thread(() =>
         {
+            SettingsDialog? settingsDlg = null;
+            ImportComposeDialog? importDlg = null;
+            MainWindow? mainWin = null;
             try
             {
                 if (System.Windows.Application.Current == null)
@@ -32,18 +35,25 @@ public class DialogTests
                     app.InitializeComponent();
                 }
 
-                var tempDir = Path.Combine(Path.GetTempPath(), $"DockerManagerDialogTests_{Guid.NewGuid():N}");
-                Directory.CreateDirectory(tempDir);
-                var cred = new CredentialService(tempDir);
-                var sett = new SettingsService(cred, Path.Combine(tempDir, "settings.json"));
+                using var env = new TestEnvironmentScope();
+                var cred = env.Credentials;
+                var sett = env.Settings;
                 var prof = new GitHubProfileService(sett, cred);
                 var dock = new DockerService(sett, cred);
                 var auth = new GitHubAuthService();
                 var cf = new CloudflareService(sett, cred);
+                var backup = new BackupService(sett, dock);
+                var dotnetScan = new DotnetAppScannerService();
+                var pyScan = new PythonAppScannerService();
+                var publisher = new DotnetPublisherService(sett, cred);
+                var updater = new AppUpdateService(sett, cred);
+                var composeImporter = new DockerComposeImporterService();
+                var composeExporter = new DockerComposeExporterService();
+                var mainVm = new MainViewModel(sett, cred, prof, dock, cf);
 
                 // 1. SettingsDialog
                 var settingsVm = new SettingsViewModel(sett, cred, prof, dock, cf);
-                var settingsDlg = new SettingsDialog(settingsVm, auth, cred, sett);
+                settingsDlg = new SettingsDialog(settingsVm, auth, cred, sett);
                 settingsDlg.Show();
                 settingsDlg.UpdateLayout();
                 Assert.NotNull(settingsDlg);
@@ -72,16 +82,17 @@ public class DialogTests
                 var switchDlg = new ProfileSwitchDialog("old-profile");
                 Assert.NotNull(switchDlg);
 
-                // 7. MainWindow
-                var mainWin = new MainWindow();
+                // 7. MainWindow (via DI constructor with isolated services)
+                mainWin = new MainWindow(
+                    cred, sett, prof, dock, auth, backup, dotnetScan, pyScan,
+                    publisher, updater, composeImporter, composeExporter, cf, mainVm);
                 Assert.NotNull(mainWin);
 
                 // 8. ImportComposeDialog
-                var composeImporter = new DockerComposeImporterService();
                 var importVm = new ImportComposeViewModel(composeImporter, "Test");
                 importVm.YamlText = "services:\n  web:\n    image: nginx:alpine\n    ports:\n      - \"8080:80\"";
                 importVm.ParseYaml();
-                var importDlg = new ImportComposeDialog(importVm);
+                importDlg = new ImportComposeDialog(importVm);
                 importDlg.Show();
                 importDlg.UpdateLayout();
                 Assert.NotNull(importDlg);
@@ -107,6 +118,12 @@ public class DialogTests
             {
                 threadException = ex;
             }
+            finally
+            {
+                try { settingsDlg?.Close(); } catch { }
+                try { importDlg?.Close(); } catch { }
+                try { mainWin?.Close(); } catch { }
+            }
         });
 
         thread.SetApartmentState(ApartmentState.STA);
@@ -122,7 +139,8 @@ public class DialogTests
     [Fact]
     public async Task TestBackupService_CreatesValidZipArchive()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"dm_test_{Guid.NewGuid():N}");
+        using var env = new TestEnvironmentScope();
+        var tempDir = env.TempDir;
         var volumeSourceDir = Path.Combine(tempDir, "nginx_conf");
         Directory.CreateDirectory(volumeSourceDir);
         File.WriteAllText(Path.Combine(volumeSourceDir, "nginx.conf"), "events {} http { server { listen 80; } }");
@@ -130,9 +148,7 @@ public class DialogTests
 
         var destinationZip = Path.Combine(tempDir, "backup_output.zip");
 
-        var cred = new CredentialService();
-        var sett = new SettingsService(cred);
-        var backupService = new BackupService(sett);
+        var backupService = new BackupService(env.Settings);
 
         var profile = new ProfileModel
         {
@@ -174,7 +190,8 @@ public class DialogTests
     [Fact]
     public async Task TestBackupService_RestoresValidZipArchive()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"dm_restore_test_{Guid.NewGuid():N}");
+        using var env = new TestEnvironmentScope();
+        var tempDir = env.TempDir;
         var volumeSourceDir = Path.Combine(tempDir, "nginx_conf");
         Directory.CreateDirectory(volumeSourceDir);
         var configFile = Path.Combine(volumeSourceDir, "nginx.conf");
@@ -182,9 +199,7 @@ public class DialogTests
 
         var destinationZip = Path.Combine(tempDir, "backup_to_restore.zip");
 
-        var cred = new CredentialService();
-        var sett = new SettingsService(cred);
-        var backupService = new BackupService(sett);
+        var backupService = new BackupService(env.Settings);
 
         var profile = new ProfileModel
         {
@@ -252,7 +267,8 @@ public class DialogTests
     [Fact]
     public void TestCredentialService_MultiRegistryCredentials()
     {
-        var cred = new CredentialService();
+        using var env = new TestEnvironmentScope();
+        var cred = env.Credentials;
 
         // 1. Save custom registries
         cred.SaveRegistryCredential(new RegistryCredential
@@ -354,11 +370,10 @@ services:
     [Fact]
     public void TestDotnetPublisher_SaveDockerfileToProjectFolder()
     {
-        var cred = new CredentialService();
-        var settings = new SettingsService(cred);
-        var publisher = new DotnetPublisherService(settings, cred);
+        using var env = new TestEnvironmentScope();
+        var publisher = new DotnetPublisherService(env.Settings, env.Credentials);
 
-        var tempDir = Path.Combine(Path.GetTempPath(), "DockerManager_Publish_Test_" + Guid.NewGuid().ToString("N"));
+        var tempDir = Path.Combine(env.TempDir, "publish_proj");
         Directory.CreateDirectory(tempDir);
 
         try
@@ -547,8 +562,9 @@ services:
     [Fact]
     public void TestCloudflareService_EnsureCloudflaredServiceInProfile()
     {
-        var cred = new CredentialService();
-        var sett = new SettingsService(cred);
+        using var env = new TestEnvironmentScope();
+        var cred = env.Credentials;
+        var sett = env.Settings;
         sett.Settings.CloudflareTunnelToken = "eyJhIjoiMTIzNDU2In0=";
 
         var cf = new CloudflareService(sett, cred);
@@ -566,7 +582,8 @@ services:
         Assert.Equal("host", svc.NetworkMode);
         Assert.NotNull(svc.Command);
         Assert.Contains("tunnel", svc.Command);
-        Assert.Contains("eyJhIjoiMTIzNDU2In0=", svc.Command);
+        Assert.Contains("${CLOUDFLARE_TUNNEL_TOKEN}", svc.Command);
+        Assert.DoesNotContain("eyJhIjoiMTIzNDU2In0=", svc.Command);
 
         // Calling again should not duplicate
         cf.EnsureCloudflaredServiceInProfile(profile);
@@ -576,8 +593,9 @@ services:
     [Fact]
     public void TestEditServiceViewModel_CloudflareOverride()
     {
-        var cred = new CredentialService();
-        var sett = new SettingsService(cred);
+        using var env = new TestEnvironmentScope();
+        var cred = env.Credentials;
+        var sett = env.Settings;
         sett.Settings.CloudflareDomain = "example.com";
         sett.Settings.CloudflareAccountId = "acc123";
         sett.Settings.CloudflareTunnelId = "tun123";
@@ -616,8 +634,9 @@ services:
     [Fact]
     public void TestServiceCardViewModel_CloudflareUrl()
     {
-        var cred = new CredentialService();
-        var sett = new SettingsService(cred);
+        using var env = new TestEnvironmentScope();
+        var cred = env.Credentials;
+        var sett = env.Settings;
         sett.Settings.CloudflareDomain = "example.com";
         var dock = new DockerService(sett, cred);
 
@@ -706,9 +725,10 @@ services:
     [Fact]
     public async Task TestCloudflareService_UnregisterSubdomain_WithMockHttp()
     {
-        var cred = new CredentialService();
+        using var env = new TestEnvironmentScope();
+        var cred = env.Credentials;
         cred.SaveCloudflareApiToken("test-token");
-        var sett = new SettingsService(cred);
+        var sett = env.Settings;
         sett.Settings.CloudflareDomain = "example.com";
         sett.Settings.CloudflareAccountId = "acc123";
         sett.Settings.CloudflareTunnelId = "tun123";
@@ -736,9 +756,10 @@ services:
     [Fact]
     public async Task TestEditServiceViewModel_UncheckCloudflare_TriggersConfirmationAndUnregister()
     {
-        var cred = new CredentialService();
+        using var env = new TestEnvironmentScope();
+        var cred = env.Credentials;
         cred.SaveCloudflareApiToken("test-token");
-        var sett = new SettingsService(cred);
+        var sett = env.Settings;
         sett.Settings.CloudflareDomain = "example.com";
         sett.Settings.CloudflareAccountId = "acc123";
         sett.Settings.CloudflareTunnelId = "tun123";
@@ -868,8 +889,9 @@ services:
     [Fact]
     public void TestDockerService_ResolveVolumeHostPath_LocalAndRemote()
     {
-        var cred = new CredentialService();
-        var sett = new SettingsService(cred);
+        using var env = new TestEnvironmentScope();
+        var cred = env.Credentials;
+        var sett = env.Settings;
         var dockerService = new DockerService(sett, cred);
 
         // 1. Named volume always stays unchanged
@@ -897,13 +919,9 @@ services:
     [Fact]
     public async Task TestMultiServer_EnvironmentProfilesIsolation()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"dm_multiserver_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempDir);
-
-        try
-        {
-            var cred = new CredentialService();
-            var sett = new SettingsService(cred);
+        using var env = new TestEnvironmentScope();
+        var cred = env.Credentials;
+        var sett = env.Settings;
 
             // Configure app settings with 2 distinct servers
             sett.Settings.Servers.Clear();
@@ -962,25 +980,18 @@ services:
             var vpsProfiles = await profService.LoadProfilesAsync(vpsServer.ProfilesSubfolder, forceRefreshFromGitHub: false);
             Assert.Contains(vpsProfiles, p => p.Name == "ProdStack");
             Assert.DoesNotContain(vpsProfiles, p => p.Name == "DevStack");
-        }
-        finally
-        {
-            try { Directory.Delete(tempDir, true); } catch { }
-        }
     }
 
     [Fact]
     public void TestProfile_CloudflareAndRegistryConfig_SerializationAndInheritance()
     {
-        var cred = new CredentialService();
-        var tempSettingsPath = Path.Combine(Path.GetTempPath(), "DockerManager_TestSett_" + Guid.NewGuid().ToString("N"), "settings.json");
-        var sett = new SettingsService(cred, tempSettingsPath);
+        using var env = new TestEnvironmentScope();
+        var cred = env.Credentials;
+        var sett = env.Settings;
         var cf = new CloudflareService(sett, cred);
         var dock = new DockerService(sett, cred);
 
-        try
-        {
-            // 1. Setup global settings
+        // 1. Setup global settings
         sett.Settings.CloudflareAccountId = "global_acc_123";
         sett.Settings.CloudflareTunnelId = "global_tunnel_456";
         sett.Settings.CloudflareDomain = "globaldomain.com";
@@ -1039,16 +1050,6 @@ services:
             Assert.True(vm.IsSaved);
             Assert.Equal("customdomain.nl", targetProfile.Cloudflare.Domain);
             Assert.Equal("customorg", targetProfile.Registry.Namespace);
-        }
-        finally
-        {
-            try
-            {
-                var dir = Path.GetDirectoryName(tempSettingsPath);
-                if (Directory.Exists(dir)) Directory.Delete(dir, true);
-            }
-            catch { }
-        }
     }
 
     [Fact]
@@ -1084,27 +1085,41 @@ services:
     [Fact]
     public void TestProfileSwitchDialog_DontAskAgain_Behavior()
     {
+        Exception? threadException = null;
         var thread = new System.Threading.Thread(() =>
         {
-            var dialog = new ProfileSwitchDialog("old-profile");
-            Assert.NotNull(dialog);
-            Assert.False(dialog.DontAskAgain);
-            Assert.False(dialog.ShouldStopPrevious.GetValueOrDefault());
+            try
+            {
+                var dialog = new ProfileSwitchDialog("old-profile");
+                Assert.NotNull(dialog);
+                Assert.False(dialog.DontAskAgain);
+                Assert.False(dialog.ShouldStopPrevious.GetValueOrDefault());
 
-            // Simulate user checking the box
-            dialog.DontAskAgainCheckBox.IsChecked = true;
-            Assert.True(dialog.DontAskAgain);
+                // Simulate user checking the box
+                dialog.DontAskAgainCheckBox.IsChecked = true;
+                Assert.True(dialog.DontAskAgain);
+            }
+            catch (Exception ex)
+            {
+                threadException = ex;
+            }
         });
         thread.SetApartmentState(System.Threading.ApartmentState.STA);
         thread.Start();
         thread.Join();
+
+        if (threadException != null)
+        {
+            throw new Exception($"TestProfileSwitchDialog_DontAskAgain_Behavior failed: {threadException}", threadException);
+        }
     }
 
     [Fact]
     public void TestProfileSettingsViewModel_AddAndManageProfiles()
     {
-        var cred = new CredentialService();
-        var sett = new SettingsService(cred);
+        using var env = new TestEnvironmentScope();
+        var cred = env.Credentials;
+        var sett = env.Settings;
         var dock = new DockerService(sett, cred);
         var cf = new CloudflareService(sett, cred);
 
@@ -1134,8 +1149,9 @@ services:
     [Fact]
     public void TestUnifiedSettings_ServerTabsAndProfiles()
     {
-        var cred = new CredentialService();
-        var sett = new SettingsService(cred);
+        using var env = new TestEnvironmentScope();
+        var cred = env.Credentials;
+        var sett = env.Settings;
         var prof = new GitHubProfileService(sett, cred);
         var dock = new DockerService(sett, cred);
         var cf = new CloudflareService(sett, cred);
@@ -1173,8 +1189,9 @@ services:
     [Fact]
     public void TestVolumesResolution_PerServerAndProfile()
     {
-        var cred = new CredentialService();
-        var sett = new SettingsService(cred);
+        using var env = new TestEnvironmentScope();
+        var cred = env.Credentials;
+        var sett = env.Settings;
         var dock = new DockerService(sett, cred);
 
         // 1. Local Windows Server
@@ -1494,9 +1511,8 @@ services:
         Assert.Equal("mijn-nieuwe-container", savedSvc.GetEffectiveContainerName());
 
         // 3. ServiceCardViewModel exposes sanitized name
-        var cred = new CredentialService();
-        var sett = new SettingsService(cred);
-        var cardVm = new ServiceCardViewModel(svcWithSpaces, "test-profile", null!, sett);
+        using var env = new TestEnvironmentScope();
+        var cardVm = new ServiceCardViewModel(svcWithSpaces, "test-profile", null!, env.Settings);
         Assert.Equal("my-test-container", cardVm.ContainerName);
 
         // 4. DockerComposeImporterService sanitizes container names with spaces
@@ -1597,8 +1613,9 @@ services:
             ProfilesSubfolder = "vps"
         };
 
-        var cred = new CredentialService();
-        var sett = new SettingsService(cred);
+        using var env = new TestEnvironmentScope();
+        var cred = env.Credentials;
+        var sett = env.Settings;
         var dock = new DockerService(sett, cred);
         var cf = new CloudflareService(sett, cred);
 
@@ -1637,8 +1654,9 @@ services:
     [Fact]
     public async Task SettingsViewModel_SaveAsync_PreservesActiveServer()
     {
-        var cred = new CredentialService();
-        var sett = new SettingsService(cred);
+        using var env = new TestEnvironmentScope();
+        var cred = env.Credentials;
+        var sett = env.Settings;
         var prof = new GitHubProfileService(sett, cred);
         var dock = new DockerService(sett, cred);
         var cf = new CloudflareService(sett, cred);
@@ -1789,8 +1807,9 @@ services:
     [Fact]
     public void TestMainViewModel_SortCardsByDependencies()
     {
-        var cred = new CredentialService();
-        var sett = new SettingsService(cred);
+        using var env = new TestEnvironmentScope();
+        var cred = env.Credentials;
+        var sett = env.Settings;
         var dock = new DockerService(sett, cred);
 
         var webSvc = new ServiceDefinition { Id = "web", DisplayName = "Frontend", Image = "frontend:latest", DependsOn = new List<string> { "api" } };
@@ -1848,8 +1867,9 @@ services:
     [Fact]
     public void TestServiceCardViewModel_Dispose_DoesNotThrow()
     {
-        var cred = new CredentialService();
-        var sett = new SettingsService(cred);
+        using var env = new TestEnvironmentScope();
+        var cred = env.Credentials;
+        var sett = env.Settings;
         var dock = new DockerService(sett, cred);
 
         var svc = new ServiceDefinition { Id = "test-service", Image = "nginx:latest" };

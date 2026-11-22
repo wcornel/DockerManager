@@ -63,7 +63,14 @@ public class DockerComposeExporterService : IDockerComposeExporterService
                     var proto = string.IsNullOrWhiteSpace(p.Protocol) || p.Protocol.Equals("tcp", StringComparison.OrdinalIgnoreCase)
                         ? ""
                         : $"/{p.Protocol.ToLowerInvariant()}";
-                    portList.Add($"{p.HostPort}:{p.ContainerPort}{proto}");
+                    if (!string.IsNullOrWhiteSpace(p.HostIp) && !p.HostIp.Equals("0.0.0.0", StringComparison.Ordinal))
+                    {
+                        portList.Add($"{p.HostIp}:{p.HostPort}:{p.ContainerPort}{proto}");
+                    }
+                    else
+                    {
+                        portList.Add($"{p.HostPort}:{p.ContainerPort}{proto}");
+                    }
                 }
                 svcConfig["ports"] = portList;
             }
@@ -99,7 +106,27 @@ public class DockerComposeExporterService : IDockerComposeExporterService
             // Command
             if (svc.Command != null && svc.Command.Count > 0)
             {
-                svcConfig["command"] = svc.Command;
+                var cmd = new List<string>(svc.Command);
+                var isCloudflared = svc.Id.Contains("cloudflared", StringComparison.OrdinalIgnoreCase) ||
+                                    svc.Image.Contains("cloudflared", StringComparison.OrdinalIgnoreCase);
+                if (isCloudflared)
+                {
+                    for (int i = 0; i < cmd.Count; i++)
+                    {
+                        if (cmd[i].StartsWith("--token=", StringComparison.OrdinalIgnoreCase) &&
+                            !string.IsNullOrWhiteSpace(cmd[i]["--token=".Length..]))
+                        {
+                            cmd[i] = "--token=${CLOUDFLARE_TUNNEL_TOKEN}";
+                        }
+                        else if (cmd[i].Equals("--token", StringComparison.OrdinalIgnoreCase) &&
+                                 i + 1 < cmd.Count &&
+                                 !string.IsNullOrWhiteSpace(cmd[i + 1]))
+                        {
+                            cmd[i + 1] = "${CLOUDFLARE_TUNNEL_TOKEN}";
+                        }
+                    }
+                }
+                svcConfig["command"] = cmd;
             }
 
             // Depends On
@@ -163,7 +190,7 @@ public class DockerComposeExporterService : IDockerComposeExporterService
             {
                 Directory.CreateDirectory(dir);
             }
-            File.WriteAllText(destinationPath, yaml, Encoding.UTF8);
+            File.WriteAllText(destinationPath, yaml, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             return true;
         }
         catch (Exception ex)

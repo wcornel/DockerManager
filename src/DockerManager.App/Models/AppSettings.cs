@@ -18,6 +18,7 @@ public class AppSettings
     public string CloudflareAccountId { get; set; } = string.Empty;
     public string CloudflareTunnelId { get; set; } = string.Empty;
     public string CloudflareDomain { get; set; } = string.Empty;
+    [System.Text.Json.Serialization.JsonIgnore]
     public string CloudflareTunnelToken { get; set; } = string.Empty;
     public bool HasCloudflareToken { get; set; }
 

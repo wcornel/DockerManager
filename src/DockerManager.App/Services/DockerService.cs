@@ -454,12 +454,28 @@ public partial class DockerService : IDockerService
         }
 
         var activeServer = _settingsService.Settings.GetActiveServer();
-        var effectiveToken = !string.IsNullOrWhiteSpace(activeServer?.CloudflareTunnelToken)
-            ? activeServer.CloudflareTunnelToken.Trim()
-            : _settingsService.Settings.CloudflareTunnelToken.Trim();
+        var effectiveToken = activeServer?.CloudflareTunnelToken;
+        if (string.IsNullOrWhiteSpace(effectiveToken) && activeServer != null && !string.IsNullOrWhiteSpace(activeServer.Id))
+        {
+            effectiveToken = _credentialService.GetServerCloudflareTunnelToken(activeServer.Id);
+        }
+        if (string.IsNullOrWhiteSpace(effectiveToken))
+        {
+            effectiveToken = _settingsService.Settings.CloudflareTunnelToken;
+        }
+        if (string.IsNullOrWhiteSpace(effectiveToken))
+        {
+            effectiveToken = _credentialService.GetCloudflareTunnelToken();
+        }
 
+        if (string.IsNullOrWhiteSpace(effectiveToken))
+        {
+            throw new InvalidOperationException("Cloudflare Tunnel Token ontbreekt in de server- of app-instellingen.");
+        }
+
+        var trimmedToken = effectiveToken.Trim();
         return service.Command
-            .Select(arg => arg.Replace(tokenPlaceholder, effectiveToken, StringComparison.Ordinal))
+            .Select(arg => arg.Replace(tokenPlaceholder, trimmedToken, StringComparison.Ordinal))
             .ToList();
     }
 

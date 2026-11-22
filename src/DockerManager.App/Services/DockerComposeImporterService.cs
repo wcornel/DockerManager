@@ -233,7 +233,8 @@ public class DockerComposeImporterService : IDockerComposeImporterService
             // e.g. "127.0.0.1:8080:80"
             if (int.TryParse(colons[1], out var hp) && int.TryParse(colons[2], out var cp))
             {
-                return new PortMapping { HostPort = hp, ContainerPort = cp, Protocol = protocol };
+                var hostIp = string.IsNullOrWhiteSpace(colons[0]) ? "0.0.0.0" : colons[0].Trim();
+                return new PortMapping { HostIp = hostIp, HostPort = hp, ContainerPort = cp, Protocol = protocol };
             }
         }
 

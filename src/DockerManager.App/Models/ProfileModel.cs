@@ -89,8 +89,23 @@ public class ProfileModel : ObservableObject
     {
         if (!string.IsNullOrWhiteSpace(VolumesSubfolder))
         {
-            var clean = VolumesSubfolder.Trim().TrimStart('/', '\\').Replace('\\', '/');
-            if (!string.IsNullOrWhiteSpace(clean)) return clean;
+            var trimmed = VolumesSubfolder.Trim();
+            if (!System.IO.Path.IsPathRooted(trimmed))
+            {
+                var clean = trimmed.Replace('\\', '/').Trim('/');
+                var segments = clean.Split('/');
+                var invalidChars = System.IO.Path.GetInvalidFileNameChars();
+                if (segments.Length > 0 &&
+                    segments.All(seg =>
+                        !string.IsNullOrWhiteSpace(seg) &&
+                        seg != "." &&
+                        seg != ".." &&
+                        !seg.Contains(':') &&
+                        seg.IndexOfAny(invalidChars) < 0))
+                {
+                    return string.Join('/', segments);
+                }
+            }
         }
 
         var safe = string.Join("", (Name ?? "default").Where(char.IsLetterOrDigit)).ToLowerInvariant();

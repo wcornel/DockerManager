@@ -63,7 +63,7 @@ public class GitHubProfileService : IGitHubProfileService
         foreach (var server in servers)
         {
             var subfolder = string.IsNullOrWhiteSpace(server.ProfilesSubfolder) ? "local" : server.ProfilesSubfolder;
-            var subDirPath = Path.Combine(localDir, subfolder);
+            var subDirPath = GetValidatedSubfolderPath(localDir, subfolder);
             if (!Directory.Exists(subDirPath))
             {
                 Directory.CreateDirectory(subDirPath);
@@ -74,7 +74,7 @@ public class GitHubProfileService : IGitHubProfileService
         var rootJsonFiles = Directory.GetFiles(localDir, "*.json");
         if (rootJsonFiles.Length > 0)
         {
-            var targetSubfolder = Path.Combine(localDir, "local");
+            var targetSubfolder = GetValidatedSubfolderPath(localDir, "local");
             if (!Directory.Exists(targetSubfolder))
             {
                 Directory.CreateDirectory(targetSubfolder);
@@ -92,17 +92,23 @@ public class GitHubProfileService : IGitHubProfileService
                     {
                         File.Copy(file, targetFile);
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        AppLogger.LogWarning(nameof(GitHubProfileService), $"Failed to migrate legacy profile '{fileName}'", ex);
+                    }
                 }
 
-                // If not example.json, remove from root so root stays clean
-                if (!fileName.Equals("example.json", StringComparison.OrdinalIgnoreCase))
+                // Only remove from root if not example.json AND the target file safely exists
+                if (!fileName.Equals("example.json", StringComparison.OrdinalIgnoreCase) && File.Exists(targetFile))
                 {
                     try
                     {
                         File.Delete(file);
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        AppLogger.LogWarning(nameof(GitHubProfileService), $"Failed to delete migrated legacy profile '{fileName}'", ex);
+                    }
                 }
             }
         }
@@ -137,12 +143,13 @@ public class GitHubProfileService : IGitHubProfileService
             });
         }
 
-        var targetDir = Path.Combine(localDir, subfolder);
+        var targetDir = GetValidatedSubfolderPath(localDir, subfolder);
         Directory.CreateDirectory(targetDir);
 
-        var safeName = string.Join("_", profile.Name.Split(Path.GetInvalidFileNameChars())).ToLowerInvariant();
+        var safeName = SanitizeProfileFileName(profile.Name)
+            ?? throw new ArgumentException("Ongeldige profielnaam.", nameof(profile));
         var filePath = Path.Combine(targetDir, $"{safeName}.json");
-        var json = JsonSerializer.Serialize(profile, JsonOptions);
+        var json = SerializeProfileForLocalSave(profile);
         await File.WriteAllTextAsync(filePath, json, ct);
     }
 
@@ -170,12 +177,13 @@ public class GitHubProfileService : IGitHubProfileService
             });
         }
 
-        var targetDir = Path.Combine(localDir, subfolder);
+        var targetDir = GetValidatedSubfolderPath(localDir, subfolder);
         Directory.CreateDirectory(targetDir);
 
-        var safeName = string.Join("_", profile.Name.Split(Path.GetInvalidFileNameChars())).ToLowerInvariant();
+        var safeName = SanitizeProfileFileName(profile.Name)
+            ?? throw new ArgumentException("Ongeldige profielnaam.", nameof(profile));
         var filePath = Path.Combine(targetDir, $"{safeName}.json");
-        var json = JsonSerializer.Serialize(profile, JsonOptions);
+        var json = SerializeProfileForLocalSave(profile);
         File.WriteAllText(filePath, json);
     }
 
@@ -194,25 +202,32 @@ public class GitHubProfileService : IGitHubProfileService
             subfolder = _settingsService.Settings.GetActiveServer().ProfilesSubfolder;
         }
 
-        var targetDir = Path.Combine(localDir, subfolder);
+        var targetDir = GetValidatedSubfolderPath(localDir, subfolder);
         if (!Directory.Exists(targetDir)) return;
 
-        var safeName = string.Join("_", profileName.Split(Path.GetInvalidFileNameChars())).ToLowerInvariant();
-        var candidates = new[]
-        {
-            Path.Combine(targetDir, $"{safeName}.json"),
-            Path.Combine(targetDir, $"{profileName}.json")
-        };
+        var safeName = SanitizeProfileFileName(profileName);
+        if (string.IsNullOrWhiteSpace(safeName)) return;
 
-        foreach (var file in candidates.Distinct())
+        var fullTargetDir = Path.GetFullPath(targetDir);
+        var targetPrefix = fullTargetDir.EndsWith(Path.DirectorySeparatorChar)
+            ? fullTargetDir
+            : fullTargetDir + Path.DirectorySeparatorChar;
+        var candidate = Path.GetFullPath(Path.Combine(fullTargetDir, $"{safeName}.json"));
+
+        if (!candidate.StartsWith(targetPrefix, StringComparison.OrdinalIgnoreCase))
         {
-            if (File.Exists(file))
+            return;
+        }
+
+        if (File.Exists(candidate))
+        {
+            try
             {
-                try
-                {
-                    File.Delete(file);
-                }
-                catch { }
+                File.Delete(candidate);
+            }
+            catch (Exception ex)
+            {
+                AppLogger.LogWarning(nameof(GitHubProfileService), $"Failed to delete profile '{safeName}.json'", ex);
             }
         }
     }
@@ -233,7 +248,7 @@ public class GitHubProfileService : IGitHubProfileService
             subfolder = settings.GetActiveServer().ProfilesSubfolder;
         }
 
-        var targetDir = Path.Combine(localDir, subfolder);
+        var targetDir = GetValidatedSubfolderPath(localDir, subfolder);
 
         if (!Directory.Exists(targetDir))
         {
@@ -313,7 +328,7 @@ public class GitHubProfileService : IGitHubProfileService
                 return (false, "Vul een GitHub eigenaar en repository naam in.");
             }
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{settings.GitHubRepoOwner}/{settings.GitHubRepoName}");
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{Uri.EscapeDataString(settings.GitHubRepoOwner)}/{Uri.EscapeDataString(settings.GitHubRepoName)}");
             if (!string.IsNullOrWhiteSpace(token))
             {
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -367,7 +382,7 @@ public class GitHubProfileService : IGitHubProfileService
             subfolder = settings.GetActiveServer().ProfilesSubfolder;
         }
 
-        var targetDir = Path.Combine(localDir, subfolder);
+        var targetDir = GetValidatedSubfolderPath(localDir, subfolder);
 
         if (!Directory.Exists(targetDir))
         {
@@ -488,17 +503,22 @@ public class GitHubProfileService : IGitHubProfileService
             }
 
             var folder = string.IsNullOrWhiteSpace(subfolder) ? settings.GitHubProfilesFolder : $"{settings.GitHubProfilesFolder}/{subfolder}";
-            var safeName = string.Join("_", profile.Name.Split(Path.GetInvalidFileNameChars())).ToLowerInvariant();
-            var path = $"{folder}/{safeName}.json";
+            var safeName = SanitizeProfileFileName(profile.Name)
+                ?? throw new ArgumentException("Ongeldige profielnaam.", nameof(profile));
+            var path = EscapeGitHubPath($"{folder}/{safeName}.json");
             var json = SerializeProfileForSync(profile);
             var base64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(json));
 
+            var ownerEsc = Uri.EscapeDataString(settings.GitHubRepoOwner);
+            var repoEsc = Uri.EscapeDataString(settings.GitHubRepoName);
+            var branchEsc = Uri.EscapeDataString(settings.GitHubBranch);
+
             string? sha = null;
-            var getReq = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{settings.GitHubRepoOwner}/{settings.GitHubRepoName}/contents/{path}?ref={settings.GitHubBranch}");
+            using var getReq = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{ownerEsc}/{repoEsc}/contents/{path}?ref={branchEsc}");
             getReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             getReq.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
 
-            var getResp = await _httpClient.SendAsync(getReq, ct);
+            using var getResp = await _httpClient.SendAsync(getReq, ct);
             if (getResp.IsSuccessStatusCode)
             {
                 var content = await getResp.Content.ReadAsStringAsync(ct);
@@ -509,7 +529,7 @@ public class GitHubProfileService : IGitHubProfileService
                 }
             }
 
-            var putReq = new HttpRequestMessage(HttpMethod.Put, $"https://api.github.com/repos/{settings.GitHubRepoOwner}/{settings.GitHubRepoName}/contents/{path}");
+            using var putReq = new HttpRequestMessage(HttpMethod.Put, $"https://api.github.com/repos/{ownerEsc}/{repoEsc}/contents/{path}");
             putReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             putReq.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
 
@@ -525,7 +545,7 @@ public class GitHubProfileService : IGitHubProfileService
             }
 
             putReq.Content = new StringContent(JsonSerializer.Serialize(payload), System.Text.Encoding.UTF8, "application/json");
-            var putResp = await _httpClient.SendAsync(putReq, ct);
+            using var putResp = await _httpClient.SendAsync(putReq, ct);
             return putResp.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -535,29 +555,142 @@ public class GitHubProfileService : IGitHubProfileService
         }
     }
 
+    private static readonly string[] SensitiveEnvKeyPatterns =
+    [
+        "PASSWORD",
+        "PASSWD",
+        "SECRET",
+        "TOKEN",
+        "APIKEY",
+        "API_KEY",
+        "PRIVATE_KEY",
+        "ACCESS_KEY",
+        "CLIENT_SECRET",
+        "CONNECTIONSTRING",
+        "CONNSTR",
+        "CREDENTIAL"
+    ];
+
+    private static void ScrubCloudflaredServiceSecrets(ServiceDefinition svc)
+    {
+        var isCloudflared = svc.Id.Contains("cloudflared", StringComparison.OrdinalIgnoreCase) ||
+                            svc.Image.Contains("cloudflared", StringComparison.OrdinalIgnoreCase);
+        if (!isCloudflared) return;
+
+        if (svc.Command != null && svc.Command.Count > 0)
+        {
+            for (int i = 0; i < svc.Command.Count; i++)
+            {
+                var arg = svc.Command[i];
+                if (arg.StartsWith("--token=", StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(arg["--token=".Length..]))
+                {
+                    svc.Command[i] = "--token=${CLOUDFLARE_TUNNEL_TOKEN}";
+                }
+                else if (arg.Equals("--token", StringComparison.OrdinalIgnoreCase) &&
+                         i + 1 < svc.Command.Count &&
+                         !string.IsNullOrWhiteSpace(svc.Command[i + 1]))
+                {
+                    svc.Command[i + 1] = "${CLOUDFLARE_TUNNEL_TOKEN}";
+                }
+            }
+        }
+
+        if (svc.Environment != null &&
+            svc.Environment.TryGetValue("TUNNEL_TOKEN", out var tunnelTokenVal) &&
+            !string.IsNullOrWhiteSpace(tunnelTokenVal))
+        {
+            svc.Environment["TUNNEL_TOKEN"] = "${CLOUDFLARE_TUNNEL_TOKEN}";
+        }
+    }
+
+    private static bool IsSensitiveEnvironmentEntry(string key, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return false;
+        var upperKey = key.Trim().ToUpperInvariant();
+
+        if (upperKey == "PWD" || upperKey.EndsWith("_PWD", StringComparison.Ordinal) || upperKey.EndsWith("__PWD", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        foreach (var pattern in SensitiveEnvKeyPatterns)
+        {
+            if (upperKey.Contains(pattern, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(value)) return false;
+
+        return value.Contains("Password=", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("Pwd=", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("ghp_", StringComparison.Ordinal) ||
+               value.Contains("github_pat_", StringComparison.Ordinal) ||
+               value.Contains("glpat-", StringComparison.Ordinal) ||
+               value.Contains("sk-", StringComparison.Ordinal) ||
+               value.StartsWith("eyJh", StringComparison.Ordinal) ||
+               value.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Serializes a profile for local disk or backup storage while replacing raw Cloudflare
+    /// tunnel tokens with the ${CLOUDFLARE_TUNNEL_TOKEN} runtime placeholder.
+    /// </summary>
+    public static string SerializeProfileForLocalSave(ProfileModel profile)
+    {
+        var json = JsonSerializer.Serialize(profile, JsonOptions);
+        var sanitized = JsonSerializer.Deserialize<ProfileModel>(json, JsonOptions)
+            ?? throw new InvalidOperationException("Failed to clone profile for local serialization.");
+
+        if (sanitized.Services != null)
+        {
+            foreach (var svc in sanitized.Services)
+            {
+                if (svc == null) continue;
+                ScrubCloudflaredServiceSecrets(svc);
+            }
+        }
+
+        return JsonSerializer.Serialize(sanitized, JsonOptions);
+    }
+
     /// <summary>
     /// Serializes a profile for remote GitHub sync while scrubbing raw Cloudflare tunnel tokens
-    /// from cloudflared service commands so secrets are never pushed to a repository.
+    /// and sensitive environment secrets so credentials are never pushed to a repository.
     /// </summary>
     public static string SerializeProfileForSync(ProfileModel profile)
     {
         var json = JsonSerializer.Serialize(profile, JsonOptions);
-        var sanitized = JsonSerializer.Deserialize<ProfileModel>(json, JsonOptions);
-        if (sanitized == null) return json;
+        var sanitized = JsonSerializer.Deserialize<ProfileModel>(json, JsonOptions)
+            ?? throw new InvalidOperationException("Failed to clone profile for GitHub sync.");
 
-        foreach (var svc in sanitized.Services)
+        if (sanitized.Services != null)
         {
-            if (svc.Command == null || svc.Command.Count == 0) continue;
-            var isCloudflared = svc.Id.Equals("cloudflared", StringComparison.OrdinalIgnoreCase) ||
-                                svc.Image.StartsWith("cloudflare/cloudflared", StringComparison.OrdinalIgnoreCase);
-            if (!isCloudflared) continue;
-
-            for (int i = 0; i < svc.Command.Count - 1; i++)
+            foreach (var svc in sanitized.Services)
             {
-                if (svc.Command[i].Equals("--token", StringComparison.OrdinalIgnoreCase) &&
-                    !string.IsNullOrWhiteSpace(svc.Command[i + 1]))
+                if (svc == null) continue;
+                ScrubCloudflaredServiceSecrets(svc);
+
+                if (svc.Environment != null && svc.Environment.Count > 0)
                 {
-                    svc.Command[i + 1] = "${CLOUDFLARE_TUNNEL_TOKEN}";
+                    var keys = svc.Environment.Keys.ToList();
+                    foreach (var key in keys)
+                    {
+                        var val = svc.Environment[key];
+                        if (key.Equals("TUNNEL_TOKEN", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (!string.IsNullOrWhiteSpace(val))
+                            {
+                                svc.Environment[key] = "${CLOUDFLARE_TUNNEL_TOKEN}";
+                            }
+                        }
+                        else if (IsSensitiveEnvironmentEntry(key, val))
+                        {
+                            svc.Environment[key] = string.Empty;
+                        }
+                    }
                 }
             }
         }
@@ -593,7 +726,7 @@ public class GitHubProfileService : IGitHubProfileService
     {
         var results = new List<ProfileModel>();
         var settings = _settingsService.Settings;
-        var url = $"https://api.github.com/repos/{settings.GitHubRepoOwner}/{settings.GitHubRepoName}/contents/{folderPath}?ref={settings.GitHubBranch}";
+        var url = $"https://api.github.com/repos/{Uri.EscapeDataString(settings.GitHubRepoOwner)}/{Uri.EscapeDataString(settings.GitHubRepoName)}/contents/{EscapeGitHubPath(folderPath)}?ref={Uri.EscapeDataString(settings.GitHubBranch)}";
 
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         if (!string.IsNullOrWhiteSpace(token))
@@ -604,7 +737,7 @@ public class GitHubProfileService : IGitHubProfileService
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(6));
 
-        var response = await _httpClient.SendAsync(request, cts.Token);
+        using var response = await _httpClient.SendAsync(request, cts.Token);
         if (!response.IsSuccessStatusCode)
         {
             return results;
@@ -624,17 +757,20 @@ public class GitHubProfileService : IGitHubProfileService
             var name = item.GetProperty("name").GetString();
             var downloadUrl = item.TryGetProperty("download_url", out var dl) ? dl.GetString() : null;
 
-            if (type == "file" && name != null && name.EndsWith(".json", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(downloadUrl))
+            if (type == "file" && name != null && name.EndsWith(".json", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrEmpty(downloadUrl) &&
+                Uri.TryCreate(downloadUrl, UriKind.Absolute, out var dlUri) &&
+                dlUri.Scheme == Uri.UriSchemeHttps)
             {
                 try
                 {
-                    using var fileRequest = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
-                    if (!string.IsNullOrWhiteSpace(token))
+                    using var fileRequest = new HttpRequestMessage(HttpMethod.Get, dlUri);
+                    if (!string.IsNullOrWhiteSpace(token) && IsTrustedGitHubHost(dlUri.Host))
                     {
                         fileRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
                     }
 
-                    var fileResponse = await _httpClient.SendAsync(fileRequest, cts.Token);
+                    using var fileResponse = await _httpClient.SendAsync(fileRequest, cts.Token);
                     if (fileResponse.IsSuccessStatusCode)
                     {
                         var fileContent = await fileResponse.Content.ReadAsStringAsync(cts.Token);
@@ -654,6 +790,71 @@ public class GitHubProfileService : IGitHubProfileService
         }
 
         return results;
+    }
+
+    private static readonly HashSet<string> ReservedWindowsNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    };
+
+    private static string? SanitizeProfileFileName(string? profileName)
+    {
+        if (string.IsNullOrWhiteSpace(profileName)) return null;
+        var sanitized = string.Join("_", profileName.Split(Path.GetInvalidFileNameChars())).Trim().TrimEnd('.');
+        sanitized = sanitized.ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(sanitized) || sanitized == "." || sanitized == "..")
+        {
+            return null;
+        }
+        if (ReservedWindowsNames.Contains(sanitized))
+        {
+            sanitized = "_" + sanitized;
+        }
+        return sanitized;
+    }
+
+    private static string GetValidatedSubfolderPath(string localDir, string? subfolder)
+    {
+        var effectiveSubfolder = string.IsNullOrWhiteSpace(subfolder) ? "local" : subfolder.Trim();
+        if (Path.IsPathRooted(effectiveSubfolder))
+        {
+            throw new ArgumentException("Submap mag geen absoluut pad zijn.", nameof(subfolder));
+        }
+
+        var segments = effectiveSubfolder.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0 || segments.Any(s => s == "." || s == ".."))
+        {
+            throw new ArgumentException("Ongeldig pad voor profielsubmap.", nameof(subfolder));
+        }
+
+        var fullLocalDir = Path.GetFullPath(localDir);
+        var combined = Path.GetFullPath(Path.Combine(fullLocalDir, effectiveSubfolder));
+        var dirPrefix = fullLocalDir.EndsWith(Path.DirectorySeparatorChar)
+            ? fullLocalDir
+            : fullLocalDir + Path.DirectorySeparatorChar;
+
+        if (!combined.Equals(fullLocalDir, StringComparison.OrdinalIgnoreCase) &&
+            !combined.StartsWith(dirPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("Submap valt buiten de profielenmap.", nameof(subfolder));
+        }
+
+        return combined;
+    }
+
+    private static string EscapeGitHubPath(string path)
+    {
+        var segments = path.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return string.Join("/", segments.Select(Uri.EscapeDataString));
+    }
+
+    private static bool IsTrustedGitHubHost(string host)
+    {
+        return host.Equals("raw.githubusercontent.com", StringComparison.OrdinalIgnoreCase) ||
+               host.Equals("api.github.com", StringComparison.OrdinalIgnoreCase) ||
+               host.Equals("github.com", StringComparison.OrdinalIgnoreCase);
     }
 
     private ProfileModel CreateDefaultProfile()
