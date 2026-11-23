@@ -23,7 +23,17 @@ public partial class SettingsDialog : Window
         _credentialService = credentialService;
         _settingsService = settingsService;
         DataContext = _viewModel;
-        _viewModel.RequestClose += () => DialogResult = _viewModel.IsSaved;
+        _viewModel.RequestClose += () =>
+        {
+            try
+            {
+                DialogResult = _viewModel.IsSaved;
+            }
+            catch (InvalidOperationException)
+            {
+                Close();
+            }
+        };
         _viewModel.RequestOpenGitHubLogin += OpenGitHubLoginDialog;
     }
 
@@ -45,7 +55,8 @@ public partial class SettingsDialog : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Fout bij starten van GitHub Login: {ex.Message}", "Fout", MessageBoxButton.OK, MessageBoxImage.Error);
+            var loc = LocalizationService.Instance;
+            MessageBox.Show(loc.Get("Settings_GitHubLoginOpenError", ex.Message), loc.Get("General_ErrorTitle"), MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -57,7 +68,8 @@ public partial class SettingsDialog : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Fout bij opslaan: {ex.Message}", "Fout", MessageBoxButton.OK, MessageBoxImage.Error);
+            var loc = LocalizationService.Instance;
+            MessageBox.Show(loc.Get("Settings_SaveError", ex.Message), loc.Get("General_ErrorTitle"), MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 }

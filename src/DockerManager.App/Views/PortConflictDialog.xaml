@@ -29,10 +29,7 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0">
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="🔍" FontSize="22" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                    <TextBlock Text="{helpers:Loc Ports_Title}" FontSize="20" FontWeight="Bold" Foreground="#0F172A" VerticalAlignment="Center"/>
-                </StackPanel>
+                <TextBlock Text="{helpers:Loc Ports_Title}" FontSize="20" FontWeight="Bold" Foreground="#0F172A" VerticalAlignment="Center"/>
                 <TextBlock Text="{helpers:Loc Ports_Subtitle}" 
                            FontSize="12.5" Foreground="#64748B" Margin="0,3,0,0"/>
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
@@ -67,13 +64,13 @@
                 <!-- Badges -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <Border Background="#EF4444" CornerRadius="10" Padding="8,3" Margin="0,0,6,0">
-                        <TextBlock Text="{Binding ConflictCount, StringFormat='{}{0} Conflicten'}" FontSize="11" FontWeight="Bold" Foreground="White"/>
+                        <TextBlock Text="{Binding ConflictBadgeText}" FontSize="11" FontWeight="Bold" Foreground="White"/>
                     </Border>
                     <Border Background="#D97706" CornerRadius="10" Padding="8,3" Margin="0,0,6,0">
-                        <TextBlock Text="{Binding WarningCount, StringFormat='{}{0} Waarschuwingen'}" FontSize="11" FontWeight="Bold" Foreground="White"/>
+                        <TextBlock Text="{Binding WarningBadgeText}" FontSize="11" FontWeight="Bold" Foreground="White"/>
                     </Border>
                     <Border Background="#16A34A" CornerRadius="10" Padding="8,3">
-                        <TextBlock Text="{Binding OkCount, StringFormat='{}{0} Vrij / OK'}" FontSize="11" FontWeight="Bold" Foreground="White"/>
+                        <TextBlock Text="{Binding OkBadgeText}" FontSize="11" FontWeight="Bold" Foreground="White"/>
                     </Border>
                 </StackPanel>
             </Grid>
@@ -88,13 +85,13 @@
 
             <!-- Filter Buttons -->
             <StackPanel Grid.Column="0" Orientation="Horizontal">
-                <Button Content="Alles" Command="{Binding SetFilterCommand}" CommandParameter="All"
+                <Button Content="{helpers:Loc Ports_FilterAll}" Command="{Binding SetFilterCommand}" CommandParameter="All"
                         Padding="12,6" Margin="0,0,6,0" Background="#FFFFFF" Foreground="#1E293B" BorderBrush="#CBD5E1" BorderThickness="1" Cursor="Hand" FontSize="12"/>
-                <Button Content="⚠️ Problemen" Command="{Binding SetFilterCommand}" CommandParameter="Issues"
+                <Button Content="{helpers:Loc Ports_FilterIssues}" Command="{Binding SetFilterCommand}" CommandParameter="Issues"
                         Padding="12,6" Margin="0,0,6,0" Background="#FFFFFF" Foreground="#D97706" BorderBrush="#CBD5E1" BorderThickness="1" Cursor="Hand" FontSize="12"/>
-                <Button Content="🔴 Conflicten" Command="{Binding SetFilterCommand}" CommandParameter="Conflicts"
+                <Button Content="{helpers:Loc Ports_FilterConflicts}" Command="{Binding SetFilterCommand}" CommandParameter="Conflicts"
                         Padding="12,6" Margin="0,0,6,0" Background="#FFFFFF" Foreground="#DC2626" BorderBrush="#CBD5E1" BorderThickness="1" Cursor="Hand" FontSize="12"/>
-                <Button Content="🟢 Vrij / OK" Command="{Binding SetFilterCommand}" CommandParameter="Ok"
+                <Button Content="{helpers:Loc Ports_FilterOk}" Command="{Binding SetFilterCommand}" CommandParameter="Ok"
                         Padding="12,6" Background="#FFFFFF" Foreground="#16A34A" BorderBrush="#CBD5E1" BorderThickness="1" Cursor="Hand" FontSize="12"/>
             </StackPanel>
 
@@ -160,14 +157,14 @@
                                 <Border Grid.Row="1" Background="#FFFBEB" BorderBrush="#FDE68A" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,8">
                                     <StackPanel>
                                         <TextBlock Text="{Binding Description}" FontSize="12" Foreground="#334155" TextWrapping="Wrap"/>
-                                        <TextBlock Text="{Binding Recommendation, StringFormat='💡 Oplossing: {0}'}" FontSize="11.5" Foreground="#92400E" FontWeight="SemiBold" 
+                                        <TextBlock Text="{Binding RecommendationText}" FontSize="11.5" Foreground="#92400E" FontWeight="SemiBold" 
                                                    TextWrapping="Wrap" Margin="0,4,0,0"/>
                                     </StackPanel>
                                 </Border>
 
                                 <!-- Row 2: Detailed Usages -->
                                 <StackPanel Grid.Row="2">
-                                    <TextBlock Text="Gekoppelde bronnen:" FontSize="11" FontWeight="SemiBold" Foreground="#64748B" Margin="0,0,0,4"/>
+                                    <TextBlock Text="{helpers:Loc Ports_LinkedSources}" FontSize="11" FontWeight="SemiBold" Foreground="#64748B" Margin="0,0,0,4"/>
                                     <ItemsControl ItemsSource="{Binding Usages}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
@@ -189,7 +186,7 @@
 
         <!-- Footer Actions -->
         <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-            <Button Content="{helpers:Loc General_Close}" Command="{Binding CloseCommand}" Padding="20,8"
+            <Button Content="{helpers:Loc General_Close}" Command="{Binding CloseCommand}" IsCancel="True" Padding="20,8"
                     Background="#F1F5F9" Foreground="#334155" BorderBrush="#CBD5E1" BorderThickness="1" FontWeight="SemiBold" Cursor="Hand"/>
         </StackPanel>
     </Grid>

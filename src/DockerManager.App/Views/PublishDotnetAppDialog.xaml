@@ -39,7 +39,7 @@
             <Button Grid.Column="1" Content="{helpers:Loc Dockerize_PermissionsHelpBtn}" Command="{Binding ToggleHelpCommand}"
                     Padding="12,6" Background="#EFF6FF" Foreground="#1D4ED8" BorderBrush="#BFDBFE" BorderThickness="1"
                     FontWeight="SemiBold" Cursor="Hand" VerticalAlignment="Center"
-                    ToolTip="Uitleg over wie mag uploaden (schrijfrechten) en downloaden (leesrechten)"/>
+                    ToolTip="{helpers:Loc Dockerize_PermissionsHelpTip}"/>
         </Grid>
 
         <!-- Main Form -->
@@ -51,14 +51,10 @@
                         Visibility="{Binding ShowPermissionsHelp, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <StackPanel>
                         <DockPanel Margin="0,0,0,8">
-                            <TextBlock Text="💡 Belangrijk: Schrijfrechten (Pushen) vs. Leesrechten (Pullen)" FontWeight="Bold" Foreground="#1E40AF" FontSize="13" DockPanel.Dock="Left"/>
-                            <Button Content="✕ Sluiten" Command="{Binding ToggleHelpCommand}" Background="Transparent" BorderThickness="0" Foreground="#64748B" Cursor="Hand" DockPanel.Dock="Right" HorizontalAlignment="Right"/>
+                            <TextBlock Text="{helpers:Loc Dockerize_HelpBannerTitle}" FontWeight="Bold" Foreground="#1E40AF" FontSize="13" DockPanel.Dock="Left"/>
+                            <Button Content="{helpers:Loc General_Close}" Command="{Binding ToggleHelpCommand}" Background="Transparent" BorderThickness="0" Foreground="#64748B" Cursor="Hand" DockPanel.Dock="Right" HorizontalAlignment="Right"/>
                         </DockPanel>
-                        <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="#1E3A8A" LineHeight="19">
-                            • <Bold>App Publiceren / Uploaden (Push):</Bold> Vereist een account met <Bold>schrijfrechten</Bold> (<Run FontFamily="Consolas">write:packages</Run> en <Run FontFamily="Consolas">repo</Run>). De ingevulde 'Account / Namespace' hieronder moet exact overeenkomen met het account waarmee je bent ingelogd (of een organisatie waarin je schrijfrechten hebt).&#x0a;
-                            • <Bold>App Downloaden / Draaien (Pull door eindgebruikers):</Bold> Eindgebruikers hebben uitsluitend <Bold>leesrechten</Bold> nodig (<Run FontFamily="Consolas">read:packages</Run>). Als je de package in GitHub Container Registry op 'Public' zet, hebben zij zelfs helemaal géén inlog nodig!&#x0a;
-                            • <Bold>Grote bestanden (&gt; 25 MB):</Bold> Als je app zware bibliotheken bevat (zoals Microsoft.Graph.dll), weigert de GitHub REST API uploads boven 25 MB. Klik in dat geval op <Bold>'💾 Dockerfile opslaan in projectmap'</Bold> en draai <Bold>'docker-build.bat'</Bold> om direct lokaal en zonder limiet te bouwen!
-                        </TextBlock>
+                        <TextBlock Text="{helpers:Loc Dockerize_HelpBannerBody}" TextWrapping="Wrap" FontSize="12" Foreground="#1E3A8A" LineHeight="19"/>
                     </StackPanel>
                 </Border>
 
@@ -142,7 +138,7 @@
                                 <TextBlock Text="{helpers:Loc Dockerize_NamespaceLabel}" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
                                 <TextBox Text="{Binding TargetGitHubOwner, UpdateSourceTrigger=PropertyChanged}" 
                                          Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="8,6"
-                                         ToolTip="Belangrijk: Dit moet het account zijn waarmee je bent ingelogd en waar je schrijfrechten (push) op hebt. Eindgebruikers die later deze container downloaden hebben alleen leesrechten (pull) nodig."/>
+                                         ToolTip="{helpers:Loc Dockerize_NamespaceTip}"/>
                             </StackPanel>
                         </Grid>
 
@@ -327,17 +323,17 @@
 
         <!-- Footer Actions -->
         <DockPanel Grid.Row="3">
-            <Button Content="{helpers:Loc General_Close}" Command="{Binding CloseCommand}" Padding="16,8" DockPanel.Dock="Left"
+            <Button Content="{helpers:Loc General_Close}" Command="{Binding CloseCommand}" IsCancel="True" Padding="16,8" DockPanel.Dock="Left"
                     Background="#F1F5F9" Foreground="#334155" BorderBrush="#CBD5E1" BorderThickness="1" Cursor="Hand"/>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right"
                         Visibility="{Binding IsScanned, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Button Content="{helpers:Loc Dockerize_SaveDockerfileBtn}" Command="{Binding SaveDockerfileToProjectFolderCommand}"
                         Padding="16,8" Margin="0,0,10,0" Background="#F1F5F9" Foreground="#0284C7" BorderBrush="#BAE6FD" BorderThickness="1" FontWeight="SemiBold" Cursor="Hand"
-                        ToolTip="Genereert direct een Dockerfile, .dockerignore en docker-build.bat in de gekozen projectmap"/>
-                <Button Content="{helpers:Loc Dockerize_BuildAndAddBtn}" Command="{Binding PublishCommand}"
+                        ToolTip="{helpers:Loc Dockerize_SaveDockerfileTip}"/>
+                <Button Content="{helpers:Loc Dockerize_BuildAndAddBtn}" Command="{Binding PublishCommand}" IsDefault="True"
                         Padding="20,8" Background="#16A34A" Foreground="White" FontWeight="Bold" BorderThickness="0" Cursor="Hand"
-                        ToolTip="Bouwt de Docker container lokaal via Docker en voegt hem direct toe aan je actieve profiel (en pusht optioneel direct naar de registry)"/>
+                        ToolTip="{helpers:Loc Dockerize_BuildAndAddTip}"/>
             </StackPanel>
         </DockPanel>
     </Grid>

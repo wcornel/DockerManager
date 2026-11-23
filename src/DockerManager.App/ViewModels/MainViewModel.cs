@@ -80,9 +80,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _isGitHubLoggedIn;
 
-    [ObservableProperty]
-    private string _gitHubButtonText = LocalizationService.Instance.Get("GitHub_SignIn");
-
     public string ContainersCountText => LocalizationService.Instance.Get("Toolbar_ContainersCount", ServiceCards.Count);
 
     [ObservableProperty]
@@ -132,7 +129,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public event Action<ServiceCardViewModel>? RequestEditService;
     public event Action? RequestAddNewService;
     public event Action? RequestOpenSettings;
-    public event Action? RequestOpenGitHubLogin;
     public event Action<ProfileModel>? RequestOpenProfileSettings;
     public event Func<ProfileModel, Task<bool>>? RequestConfirmDeleteProfile;
     public event Func<ProfileModel, Task>? RequestBackupVolumes;
@@ -215,19 +211,50 @@ public partial class MainViewModel : ObservableObject, IDisposable
         await CheckDockerStatusAsync();
         await LoadProfilesAsync(forceRefresh: false);
 
+        if (IsDockerConnected)
+        {
+            await AutoStartServicesAsync();
+        }
+
         SetupProfilesFileWatcher();
         _pollTimer.Start();
+    }
+
+    public async Task AutoStartServicesAsync()
+    {
+        var autoStartCandidates = ServiceCards.Where(c => c.Service.AutoStart).ToList();
+        if (autoStartCandidates.Count == 0) return;
+
+        await RefreshAllCardStatusesAsync();
+
+        var toStart = ServiceCards
+            .Where(c => c.Service.AutoStart && c.IsStopped && !c.IsBusy)
+            .ToList();
+        if (toStart.Count == 0) return;
+
+        var waves = GroupCardsIntoStartWaves(toStart);
+        foreach (var wave in waves)
+        {
+            var tasks = new List<Task>();
+            foreach (var card in wave)
+            {
+                if (card.IsStopped && !card.IsBusy)
+                {
+                    tasks.Add(card.StartCommand.ExecuteAsync(null));
+                }
+            }
+
+            if (tasks.Count > 0)
+            {
+                await Task.WhenAll(tasks);
+            }
+        }
     }
 
     public void RefreshAuthStatus()
     {
         var token = _credentialService.GetGitHubToken();
-        var username = _settingsService.Settings.LoggedInUsername;
         IsGitHubLoggedIn = !string.IsNullOrWhiteSpace(token);
-        var loc = LocalizationService.Instance;
-        GitHubButtonText = IsGitHubLoggedIn 
-            ? (!string.IsNullOrWhiteSpace(username) ? $"@{username} ✅" : loc.Get("GitHub_LoggedIn")) 
-            : loc.Get("GitHub_SignIn");
     }
 
     public async Task CheckDockerStatusAsync()
@@ -242,37 +269,45 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
+            var loc = LocalizationService.Instance;
             IsDockerConnected = false;
-            DockerStatusText = $"Docker fout: {ex.Message}";
-            DockerDiagnosisTip = "Controleer of de Docker service draait en bereikbaar is.";
+            DockerStatusText = loc.Get("Main_DockerError", ex.Message);
+            DockerDiagnosisTip = loc.Get("Main_DockerErrorTip");
         }
     }
 
     [RelayCommand]
     private async Task LaunchDockerDesktopAsync()
     {
+        var loc = LocalizationService.Instance;
         IsLaunchingDocker = true;
-        StatusNotification = "🚀 Bezig met opstarten van Docker Desktop...";
-        var launched = await _dockerService.TryLaunchDockerDesktopAsync();
-        if (launched)
+        try
         {
-            StatusNotification = "Docker Desktop wordt opgestart. Even geduld...";
-            // Wacht 5 seconden en check opnieuw
-            await Task.Delay(5000);
-            await CheckDockerStatusAsync();
+            StatusNotification = loc.Get("Docker_LaunchingDesktop");
+            var launched = await _dockerService.TryLaunchDockerDesktopAsync();
+            if (launched)
+            {
+                StatusNotification = loc.Get("Docker_Starting");
+                // Wacht 5 seconden en check opnieuw
+                await Task.Delay(5000);
+                await CheckDockerStatusAsync();
+            }
+            else
+            {
+                StatusNotification = loc.Get("Docker_StartFailed");
+            }
         }
-        else
+        finally
         {
-            StatusNotification = "Kon Docker Desktop niet automatisch starten. Start de applicatie handmatig via het Windows Startmenu.";
+            IsLaunchingDocker = false;
         }
-        IsLaunchingDocker = false;
     }
 
     public async Task LoadProfilesAsync(bool forceRefresh)
     {
         await _loadProfilesLock.WaitAsync();
         IsSyncing = true;
-        SyncStatusText = forceRefresh ? "Synchroniseren met GitHub..." : "Profielen laden...";
+        SyncStatusText = LocalizationService.Instance.Get(forceRefresh ? "Main_SyncingProfiles" : "Main_LoadingProfiles");
 
         try
         {
@@ -313,7 +348,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            SyncStatusText = $"Sync fout: {ex.Message}";
+            SyncStatusText = LocalizationService.Instance.Get("Main_SyncError", ex.Message);
         }
         finally
         {
@@ -394,7 +429,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         if (shouldStop)
         {
-            StatusNotification = $"⏹ Containers van vorig profiel '{oldProfile.Name}' stoppen...";
+            StatusNotification = LocalizationService.Instance.Get("Main_StoppingPrevProfile", oldProfile.Name);
             foreach (var svc in oldProfile.Services)
             {
                 var cName = svc.GetEffectiveContainerName();
@@ -497,7 +532,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             _suppressProfileSwitchPrompt = false;
         }
-        StatusNotification = $"🗑️ Profiel '{profileToDelete.Name}' is verwijderd.";
+        StatusNotification = LocalizationService.Instance.Get("Main_ProfileDeleted", profileToDelete.Name);
     }
 
     private void OnDeleteServiceCard(ServiceCardViewModel card)
@@ -540,7 +575,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ServiceCards.Remove(card);
         card.Dispose();
         _ = SaveCurrentProfileAsync();
-        StatusNotification = $"🗑️ Container '{card.Service.DisplayName}' verwijderd uit profiel.";
+        StatusNotification = LocalizationService.Instance.Get("Main_ContainerRemoved", card.Service.DisplayName);
     }
 
     private bool AskConfirmation(string message, string title)
@@ -567,7 +602,18 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
         catch { }
 
-        var containerMap = allContainers?.ToDictionary(c => c.ContainerName, c => c, StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, ContainerRuntimeInfo>? containerMap = null;
+        if (allContainers != null)
+        {
+            containerMap = new Dictionary<string, ContainerRuntimeInfo>(StringComparer.OrdinalIgnoreCase);
+            foreach (var c in allContainers)
+            {
+                if (!string.IsNullOrWhiteSpace(c.ContainerName))
+                {
+                    containerMap.TryAdd(c.ContainerName, c);
+                }
+            }
+        }
 
         foreach (var card in ServiceCards.ToList())
         {
@@ -630,7 +676,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
             if (updatesCount > 0)
             {
-                StatusNotification = $"🔔 {updatesCount} container update(s) gevonden! Klik op 'Update Alles' om de nieuwste versies te laden.";
+                StatusNotification = LocalizationService.Instance.Get("Main_UpdatesFound", updatesCount);
             }
         }
     }
@@ -643,19 +689,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         UpdateAllButtonBackground = "#2563EB";
         _lastHandledChange = DateTime.UtcNow.AddSeconds(2);
         await LoadProfilesAsync(forceRefresh: true);
-        StatusNotification = $"✅ Profielen gesynchroniseerd ({Profiles.Count} geladen)";
+        StatusNotification = LocalizationService.Instance.Get("Main_ProfilesSynced", Profiles.Count);
     }
 
     [RelayCommand]
     private void OpenSettings()
     {
         RequestOpenSettings?.Invoke();
-    }
-
-    [RelayCommand]
-    private void OpenGitHubLogin()
-    {
-        RequestOpenGitHubLogin?.Invoke();
     }
 
     [RelayCommand]
@@ -869,16 +909,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task PruneDockerAsync()
     {
-        StatusNotification = "🧹 Docker schijfruimte opschonen (dangling images & cache)...";
+        var loc = LocalizationService.Instance;
+        StatusNotification = loc.Get("Main_PruningDocker");
         try
         {
             var (reclaimed, summary) = await _dockerService.PruneUnusedResourcesAsync();
             var mb = reclaimed / (1024.0 * 1024.0);
-            StatusNotification = $"✅ Opschonen voltooid: {summary} ({mb:F1} MB vrijgemaakt)";
+            StatusNotification = loc.Get("Main_PruneDone", summary, mb);
         }
         catch (Exception ex)
         {
-            StatusNotification = $"❌ Fout bij opschonen: {ex.Message}";
+            StatusNotification = loc.Get("Main_PruneError", ex.Message);
         }
     }
 
@@ -905,7 +946,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             }
             catch (Exception ex)
             {
-                StatusNotification = $"⚠️ Lokaal opgeslagen, maar GitHub sync mislukt: {ex.Message}";
+                StatusNotification = LocalizationService.Instance.Get("Main_GitHubSyncFailed", ex.Message);
             }
         }
     }
@@ -918,7 +959,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         UpdateAllButtonBackground = "#2563EB";
         _lastHandledChange = DateTime.UtcNow.AddSeconds(2);
         await LoadProfilesAsync(forceRefresh: false);
-        StatusNotification = $"✅ Profiel '{SelectedProfile?.Name}' succesvol herladen!";
+        StatusNotification = LocalizationService.Instance.Get("Main_ProfileReloaded", SelectedProfile?.Name ?? string.Empty);
     }
 
     [RelayCommand]
@@ -975,15 +1016,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
             string.Equals(e.Name, $"{currentProfileName}.json", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(e.Name, $"{currentProfileName.ToLowerInvariant()}.json", StringComparison.OrdinalIgnoreCase))
         {
-            Application.Current?.Dispatcher?.Invoke(() =>
+            Application.Current?.Dispatcher?.BeginInvoke(() =>
             {
+                if (_disposed) return;
                 if ((DateTime.UtcNow - _lastHandledChange).TotalSeconds < 2) return;
                 _lastHandledChange = DateTime.UtcNow;
 
                 HasExternalProfileChanges = true;
                 UpdateAllButtonText = LocalizationService.Instance.Get("Toolbar_UpdateAvailable");
                 UpdateAllButtonBackground = "#F59E0B";
-                StatusNotification = $"🔔 Profiel '{currentProfileName}' is gewijzigd op schijf! Klik op 'Nu Herladen & Toepassen'.";
+                StatusNotification = LocalizationService.Instance.Get("Main_ProfileModifiedNotice", currentProfileName);
             });
         }
     }

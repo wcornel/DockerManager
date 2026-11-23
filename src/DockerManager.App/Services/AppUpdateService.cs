@@ -1,3 +1,4 @@
+using System.Threading;
 using Velopack;
 using Velopack.Sources;
 using DockerManager.App.Models;
@@ -20,18 +21,18 @@ public interface IAppUpdateService
     Task<bool> DownloadAndApplyUpdateAsync(UpdateInfo updateInfo, Action<int>? progress = null, CancellationToken ct = default);
 }
 
-public class AppUpdateService : IAppUpdateService
+public class AppUpdateService : IAppUpdateService, IDisposable
 {
-    private readonly ISettingsService _settingsService;
-    private readonly ICredentialService _credentialService;
+    private readonly SemaphoreSlim _updateLock = new(1, 1);
+    private bool _disposed;
 
     public AppUpdateService(ISettingsService settingsService, ICredentialService credentialService)
     {
-        _settingsService = settingsService;
-        _credentialService = credentialService;
+        _ = settingsService;
+        _ = credentialService;
     }
 
-    private UpdateManager GetUpdateManager()
+    private static UpdateManager GetUpdateManager()
     {
         const string repoUrl = "https://github.com/wcornel/DockerManager";
         var source = new GithubSource(repoUrl, accessToken: null, prerelease: false);
@@ -40,22 +41,30 @@ public class AppUpdateService : IAppUpdateService
 
     public async Task<UpdateCheckResult> CheckForUpdatesAsync(CancellationToken ct = default)
     {
-        var mgr = GetUpdateManager();
-        var currentVer = mgr.CurrentVersion?.ToString() ?? "1.0.0";
-
-        if (!mgr.IsInstalled)
-        {
-            return new UpdateCheckResult
-            {
-                IsInstalledApp = false,
-                CurrentVersion = currentVer,
-                Message = "DockerManager draait momenteel als standalone/portable versie. Installeer via Setup.exe om automatische updates in te schakelen."
-            };
-        }
-
+        var loc = LocalizationService.Instance;
+        await _updateLock.WaitAsync(ct);
+        bool isInstalled = false;
+        string currentVer = "1.0.0";
         try
         {
+            ct.ThrowIfCancellationRequested();
+            var mgr = GetUpdateManager();
+            isInstalled = mgr.IsInstalled;
+            currentVer = mgr.CurrentVersion?.ToString() ?? "1.0.0";
+
+            if (!mgr.IsInstalled)
+            {
+                return new UpdateCheckResult
+                {
+                    IsInstalledApp = false,
+                    CurrentVersion = currentVer,
+                    Message = loc.Get("Update_PortableMsg")
+                };
+            }
+
             var updateInfo = await mgr.CheckForUpdatesAsync();
+            ct.ThrowIfCancellationRequested();
+
             if (updateInfo == null)
             {
                 return new UpdateCheckResult
@@ -63,7 +72,7 @@ public class AppUpdateService : IAppUpdateService
                     IsInstalledApp = true,
                     IsUpdateAvailable = false,
                     CurrentVersion = currentVer,
-                    Message = $"DockerManager is al up-to-date (versie {currentVer})."
+                    Message = loc.Get("Update_UpToDate", currentVer)
                 };
             }
 
@@ -75,32 +84,70 @@ public class AppUpdateService : IAppUpdateService
                 CurrentVersion = currentVer,
                 NewVersion = newVer,
                 UpdateInfo = updateInfo,
-                Message = $"Nieuwe versie {newVer} beschikbaar!"
+                Message = loc.Get("Update_Available", newVer)
             };
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
+            AppLogger.LogError(nameof(AppUpdateService), ex, "Update check failed");
             return new UpdateCheckResult
             {
-                IsInstalledApp = mgr.IsInstalled,
+                IsInstalledApp = isInstalled,
                 CurrentVersion = currentVer,
-                Message = $"Fout bij controleren op updates: {ex.Message}"
+                Message = loc.Get("Update_CheckError", ex.Message)
             };
+        }
+        finally
+        {
+            _updateLock.Release();
         }
     }
 
     public async Task<bool> DownloadAndApplyUpdateAsync(UpdateInfo updateInfo, Action<int>? progress = null, CancellationToken ct = default)
     {
-        var mgr = GetUpdateManager();
+        await _updateLock.WaitAsync(ct);
         try
         {
-            await mgr.DownloadUpdatesAsync(updateInfo, progress);
-            mgr.ApplyUpdatesAndRestart(updateInfo);
+            ct.ThrowIfCancellationRequested();
+            var mgr = GetUpdateManager();
+            await mgr.DownloadUpdatesAsync(updateInfo, progress, ct);
+            ct.ThrowIfCancellationRequested();
+
+            if (System.Windows.Application.Current != null)
+            {
+                mgr.WaitExitThenApplyUpdates(updateInfo, silent: false, restart: true);
+                System.Windows.Application.Current.Dispatcher.Invoke(() => System.Windows.Application.Current.Shutdown());
+            }
+            else
+            {
+                mgr.ApplyUpdatesAndRestart(updateInfo);
+            }
             return true;
         }
-        catch (Exception)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            AppLogger.LogError(nameof(AppUpdateService), ex, "Download or apply update failed");
             return false;
         }
+        finally
+        {
+            _updateLock.Release();
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _updateLock.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

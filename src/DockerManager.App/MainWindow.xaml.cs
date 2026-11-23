@@ -110,7 +110,6 @@ public partial class MainWindow : Window
         LocalizationService.Instance.SetLanguage(_settingsService.Settings.Language);
 
         _viewModel.RequestOpenSettings += () => ShowSettingsDialog();
-        _viewModel.RequestOpenGitHubLogin += ShowGitHubLoginDialog;
         _viewModel.RequestOpenProfileSettings += ShowProfileSettingsDialog;
         _viewModel.RequestConfirmDeleteProfile += ConfirmDeleteProfileAsync;
         _viewModel.RequestOpenLogs += ShowLogViewerDialog;
@@ -150,17 +149,11 @@ public partial class MainWindow : Window
             var result = await _appUpdateService.CheckForUpdatesAsync();
             if (result.IsUpdateAvailable && result.UpdateInfo != null)
             {
-                _viewModel.StatusNotification = $"✨ Update {result.NewVersion} beschikbaar! Ga naar 'Help ➔ Zoeken naar Updates...' om te installeren.";
+                _viewModel.StatusNotification = LocalizationService.Instance.Get("Update_StartupNotification", result.NewVersion ?? string.Empty);
             }
         }
         catch { }
     }
-
-    private void AddNewProfileMenu_Click(object sender, RoutedEventArgs e)
-    {
-        ShowAddProfileDialog();
-    }
-
 
     private void PublishDotnetMenu_Click(object sender, RoutedEventArgs e)
     {
@@ -174,41 +167,40 @@ public partial class MainWindow : Window
 
     private async void CheckForUpdatesMenu_Click(object sender, RoutedEventArgs e)
     {
+        var loc = LocalizationService.Instance;
         try
         {
-            _viewModel.StatusNotification = "🔍 Zoeken naar nieuwe DockerManager updates...";
+            _viewModel.StatusNotification = loc.Get("Update_Checking");
             var result = await _appUpdateService.CheckForUpdatesAsync();
 
             if (result.IsUpdateAvailable && result.UpdateInfo != null)
             {
                 var answer = MessageBox.Show(
-                    $"Er is een nieuwe versie van DockerManager beschikbaar!\n\n" +
-                    $"Huidige versie: {result.CurrentVersion}\n" +
-                    $"Nieuwe versie: {result.NewVersion}\n\n" +
-                    $"Wil je de update nu downloaden en de app herstarten naar de nieuwste versie?",
-                    "Update Beschikbaar",
+                    loc.Get("Update_PromptBody", result.CurrentVersion, result.NewVersion ?? string.Empty),
+                    loc.Get("Update_PromptTitle"),
                     MessageBoxButton.YesNo,
                     MessageBoxImage.Information);
 
                 if (answer == MessageBoxResult.Yes)
                 {
-                    _viewModel.StatusNotification = "🚀 Bezig met downloaden en toepassen van update...";
+                    _viewModel.StatusNotification = loc.Get("Update_Downloading");
                     var success = await _appUpdateService.DownloadAndApplyUpdateAsync(result.UpdateInfo);
                     if (!success)
                     {
-                        MessageBox.Show("Het downloaden of toepassen van de update is mislukt. Probeer het later opnieuw.", "Update Mislukt", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        MessageBox.Show(loc.Get("Update_FailedBody"), loc.Get("Update_FailedTitle"), MessageBoxButton.OK, MessageBoxImage.Warning);
                     }
                 }
             }
             else
             {
-                _viewModel.StatusNotification = result.Message ?? "DockerManager is up-to-date.";
-                MessageBox.Show(result.Message ?? "DockerManager is al up-to-date.", "Zoeken naar Updates", MessageBoxButton.OK, MessageBoxImage.Information);
+                var upToDateMsg = result.Message ?? loc.Get("Update_UpToDate", result.CurrentVersion);
+                _viewModel.StatusNotification = upToDateMsg;
+                MessageBox.Show(upToDateMsg, loc.Get("Update_CheckTitle"), MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Fout bij controleren op updates: {ex.Message}", "Update Fout", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(loc.Get("Update_CheckError", ex.Message), loc.Get("Update_ErrorTitle"), MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -246,23 +238,17 @@ public partial class MainWindow : Window
         MessageBox.Show(msg, title, MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
-    private void OpenActionsMenu_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is FrameworkElement element && element.ContextMenu != null)
-        {
-            element.ContextMenu.PlacementTarget = element;
-            element.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
-            element.ContextMenu.IsOpen = true;
-        }
-    }
-
     private async Task HandleBackupVolumesAsync(ProfileModel profile)
     {
-        var defaultFileName = $"Backup_{profile.Name}_{DateTime.Now:yyyyMMdd_HHmm}.zip";
+        var loc = LocalizationService.Instance;
+        var invalidChars = System.IO.Path.GetInvalidFileNameChars();
+        var safeProfileName = string.Join("_", (profile.Name ?? "profile").Split(invalidChars, StringSplitOptions.RemoveEmptyEntries)).Trim();
+        if (string.IsNullOrWhiteSpace(safeProfileName)) safeProfileName = "profile";
+        var defaultFileName = $"Backup_{safeProfileName}_{DateTime.Now:yyyyMMdd_HHmm}.zip";
         var sfd = new Microsoft.Win32.SaveFileDialog
         {
-            Title = $"Back-up Opslaan voor Profiel '{profile.Name}'",
-            Filter = "ZIP-archief (*.zip)|*.zip|Alle bestanden (*.*)|*.*",
+            Title = loc.Get("Backup_SaveDialogTitle", profile.Name ?? safeProfileName),
+            Filter = loc.Get("Backup_ZipFilter"),
             FileName = defaultFileName,
             DefaultExt = ".zip"
         };
@@ -270,7 +256,7 @@ public partial class MainWindow : Window
         if (sfd.ShowDialog(this) == true)
         {
             var zipPath = sfd.FileName;
-            _viewModel.StatusNotification = "💾 Back-up maken...";
+            _viewModel.StatusNotification = loc.Get("Backup_Creating");
 
             var progress = new Progress<(string message, double percentage)>(p =>
             {
@@ -281,16 +267,14 @@ public partial class MainWindow : Window
 
             if (result.Success)
             {
-                _viewModel.StatusNotification = $"✅ Back-up gereed: {System.IO.Path.GetFileName(zipPath)} ({result.FilesCount} bestanden, {result.TotalBytes / 1024.0 / 1024.0:F2} MB)";
+                _viewModel.StatusNotification = loc.Get("Backup_ReadyNotification", System.IO.Path.GetFileName(zipPath), result.FilesCount, result.TotalBytes / 1024.0 / 1024.0);
 
-                var msg = $"De back-up van profiel '{profile.Name}' is succesvol opgeslagen!\n\n" +
-                          $"Locatie: {zipPath}\n" +
-                          $"Aantal bestanden: {result.FilesCount}\n" +
-                          $"Omvang: {result.TotalBytes / 1024.0 / 1024.0:F2} MB\n\n" +
-                          (result.Warnings.Count > 0 ? $"Waarschuwingen:\n{string.Join("\n", result.Warnings.Take(5))}\n\n" : "") +
-                          "Wil je de map met de back-up nu openen in Windows Verkenner?";
+                var warningsBlock = result.Warnings.Count > 0
+                    ? $"{loc.Get("Backup_WarningsHeader")}\n{string.Join("\n", result.Warnings.Take(5))}\n\n"
+                    : string.Empty;
+                var msg = loc.Get("Backup_CompletedBody", profile.Name ?? safeProfileName, zipPath, result.FilesCount, result.TotalBytes / 1024.0 / 1024.0, warningsBlock);
 
-                var res = MessageBox.Show(msg, "Back-up Voltooid", MessageBoxButton.YesNo, MessageBoxImage.Information);
+                var res = MessageBox.Show(msg, loc.Get("Backup_CompletedTitle"), MessageBoxButton.YesNo, MessageBoxImage.Information);
                 if (res == MessageBoxResult.Yes)
                 {
                     try
@@ -307,18 +291,19 @@ public partial class MainWindow : Window
             }
             else
             {
-                _viewModel.StatusNotification = $"❌ Fout bij back-up: {result.ErrorMessage}";
-                MessageBox.Show($"Fout bij het maken van de back-up:\n\n{result.ErrorMessage}", "Back-up Mislukt", MessageBoxButton.OK, MessageBoxImage.Error);
+                _viewModel.StatusNotification = loc.Get("Backup_FailedNotification", result.ErrorMessage ?? string.Empty);
+                MessageBox.Show(loc.Get("Backup_FailedBody", result.ErrorMessage ?? string.Empty), loc.Get("Backup_FailedTitle"), MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
     }
 
     private async Task HandleRestoreBackupAsync()
     {
+        var loc = LocalizationService.Instance;
         var ofd = new Microsoft.Win32.OpenFileDialog
         {
-            Title = "Kies een ZIP Back-up om terug te zetten",
-            Filter = "ZIP-archief (*.zip)|*.zip|Alle bestanden (*.*)|*.*",
+            Title = loc.Get("Restore_OpenDialogTitle"),
+            Filter = loc.Get("Backup_ZipFilter"),
             DefaultExt = ".zip"
         };
 
@@ -326,16 +311,14 @@ public partial class MainWindow : Window
         {
             var zipPath = ofd.FileName;
             var confirm = MessageBox.Show(
-                $"Weet je zeker dat je de bestanden uit deze back-up wilt terugzetten?\n\n" +
-                $"Bestand: {zipPath}\n\n" +
-                $"Let op: Bestaande configuratie- en databestanden van de containers kunnen worden overschreven.",
-                "Back-up Terugzetten Bevestigen",
+                loc.Get("Restore_ConfirmBody", zipPath),
+                loc.Get("Restore_ConfirmTitle"),
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question);
 
             if (confirm != MessageBoxResult.Yes) return;
 
-            _viewModel.StatusNotification = "📥 Back-up terugzetten...";
+            _viewModel.StatusNotification = loc.Get("Restore_Restoring");
 
             var progress = new Progress<(string message, double percentage)>(p =>
             {
@@ -346,15 +329,14 @@ public partial class MainWindow : Window
 
             if (result.Success)
             {
-                _viewModel.StatusNotification = $"✅ Terugzetten voltooid: {result.RestoredFilesCount} bestanden teruggezet ({result.RestoredBytes / 1024.0 / 1024.0:F2} MB)";
+                _viewModel.StatusNotification = loc.Get("Restore_ReadyNotification", result.RestoredFilesCount, result.RestoredBytes / 1024.0 / 1024.0);
 
-                var msg = $"De back-up is succesvol teruggezet!\n\n" +
-                          $"Aantal herstelde bestanden: {result.RestoredFilesCount}\n" +
-                          $"Omvang: {result.RestoredBytes / 1024.0 / 1024.0:F2} MB\n\n" +
-                          (result.Warnings.Count > 0 ? $"Waarschuwingen:\n{string.Join("\n", result.Warnings.Take(5))}\n\n" : "") +
-                          "Wil je de containerstatussen nu verversen?";
+                var warningsBlock = result.Warnings.Count > 0
+                    ? $"{loc.Get("Backup_WarningsHeader")}\n{string.Join("\n", result.Warnings.Take(5))}\n\n"
+                    : string.Empty;
+                var msg = loc.Get("Restore_CompletedBody", result.RestoredFilesCount, result.RestoredBytes / 1024.0 / 1024.0, warningsBlock);
 
-                var res = MessageBox.Show(msg, "Back-up Teruggezet", MessageBoxButton.YesNo, MessageBoxImage.Information);
+                var res = MessageBox.Show(msg, loc.Get("Restore_CompletedTitle"), MessageBoxButton.YesNo, MessageBoxImage.Information);
                 if (res == MessageBoxResult.Yes)
                 {
                     await _viewModel.RefreshAllCardStatusesAsync();
@@ -362,14 +344,15 @@ public partial class MainWindow : Window
             }
             else
             {
-                _viewModel.StatusNotification = $"❌ Fout bij terugzetten: {result.ErrorMessage}";
-                MessageBox.Show($"Fout bij het terugzetten van de back-up:\n\n{result.ErrorMessage}", "Terugzetten Mislukt", MessageBoxButton.OK, MessageBoxImage.Error);
+                _viewModel.StatusNotification = loc.Get("Restore_FailedNotification", result.ErrorMessage ?? string.Empty);
+                MessageBox.Show(loc.Get("Restore_FailedBody", result.ErrorMessage ?? string.Empty), loc.Get("Restore_FailedTitle"), MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
     }
 
     private async void ImportComposeMenu_Click(object sender, RoutedEventArgs e)
     {
+        var loc = LocalizationService.Instance;
         var currentProfileName = _viewModel.SelectedProfile?.Name ?? string.Empty;
         var vm = new ImportComposeViewModel(_composeImporterService, currentProfileName);
         var dialog = new ImportComposeDialog(vm) { Owner = this };
@@ -384,7 +367,7 @@ public partial class MainWindow : Window
                 var newProfile = new ProfileModel
                 {
                     Name = targetName,
-                    Description = $"Geïmporteerd vanuit Docker Compose ({DateTime.Now:yyyy-MM-dd HH:mm})",
+                    Description = loc.Get("ImportCompose_ImportedDescription", DateTime.Now.ToString("yyyy-MM-dd HH:mm")),
                     AutoStopPreviousOnSwitch = false
                 };
                 foreach (var svc in vm.ResultServices)
@@ -396,7 +379,7 @@ public partial class MainWindow : Window
                 await _viewModel.LoadProfilesAsync(forceRefresh: false);
                 _viewModel.SelectedProfile = _viewModel.Profiles.FirstOrDefault(p => p.Name.Equals(newProfile.Name, StringComparison.OrdinalIgnoreCase)) ?? _viewModel.Profiles.FirstOrDefault();
                 await _viewModel.SaveCurrentProfileAsync();
-                _viewModel.StatusNotification = $"🎉 Nieuw profiel '{newProfile.Name}' aangemaakt met {vm.ResultServices.Count} container(s)!";
+                _viewModel.StatusNotification = loc.Get("ImportCompose_NewProfileNotification", newProfile.Name, vm.ResultServices.Count);
             }
             else
             {
@@ -421,7 +404,7 @@ public partial class MainWindow : Window
                     await _viewModel.SaveCurrentProfileAsync();
                     _viewModel.RebuildServiceCards();
                     _ = _viewModel.RefreshAllCardStatusesAsync();
-                    _viewModel.StatusNotification = $"🎉 {addedCount} container(s) toegevoegd aan profiel '{active.Name}'!";
+                    _viewModel.StatusNotification = loc.Get("ImportCompose_AddedNotification", addedCount, active.Name);
                 }
             }
         }
@@ -429,19 +412,20 @@ public partial class MainWindow : Window
 
     private void ExportComposeMenu_Click(object sender, RoutedEventArgs e)
     {
+        var loc = LocalizationService.Instance;
         var profile = _viewModel.SelectedProfile;
         if (profile == null || profile.Services == null || profile.Services.Count == 0)
         {
-            MessageBox.Show(LocalizationService.Instance["Export_Empty"], "Docker Compose Export", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(loc["Export_Empty"], loc.Get("Export_DialogTitle"), MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
         var saveDialog = new Microsoft.Win32.SaveFileDialog
         {
-            Title = "Docker Compose exporteren",
+            Title = loc.Get("Export_DialogTitle"),
             FileName = "docker-compose.yml",
             DefaultExt = ".yml",
-            Filter = "YAML bestanden (*.yml;*.yaml)|*.yml;*.yaml|Alle bestanden (*.*)|*.*"
+            Filter = loc.Get("Export_YamlFilter")
         };
 
         if (saveDialog.ShowDialog() == true)
@@ -449,12 +433,12 @@ public partial class MainWindow : Window
             var success = _composeExporterService.ExportToFile(profile, saveDialog.FileName, out var err);
             if (success)
             {
-                _viewModel.StatusNotification = $"💾 Profiel '{profile.Name}' succesvol geëxporteerd naar '{System.IO.Path.GetFileName(saveDialog.FileName)}'!";
-                MessageBox.Show(LocalizationService.Instance["Export_Success"], "Docker Compose Export", MessageBoxButton.OK, MessageBoxImage.Information);
+                _viewModel.StatusNotification = loc.Get("Export_SuccessNotification", profile.Name, System.IO.Path.GetFileName(saveDialog.FileName));
+                MessageBox.Show(loc["Export_Success"], loc.Get("Export_DialogTitle"), MessageBoxButton.OK, MessageBoxImage.Information);
             }
             else
             {
-                MessageBox.Show($"Fout bij exporteren: {err}", "Fout", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(loc.Get("Export_ErrorBody", err ?? string.Empty), loc.Get("General_ErrorTitle"), MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
     }
@@ -521,7 +505,6 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
-        SaveWindowBounds();
         base.OnClosed(e);
         DisposeTrayIcon();
         _viewModel.Dispose();

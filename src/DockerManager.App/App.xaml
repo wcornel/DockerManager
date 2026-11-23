@@ -6,7 +6,6 @@
         <ResourceDictionary>
             <helpers:StateToBrushConverter x:Key="StateToBrushConverter"/>
             <helpers:BooleanToBrushConverter x:Key="BooleanToBrushConverter"/>
-            <helpers:StateToTextConverter x:Key="StateToTextConverter"/>
             <helpers:AppBooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
             <helpers:AppInverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter"/>
             <helpers:StringNullOrEmptyToVisibilityConverter x:Key="StringNullOrEmptyToVisibilityConverter"/>
@@ -25,19 +24,40 @@
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
-                            <Border Background="{TemplateBinding Background}"
+                            <Border x:Name="border"
+                                    Background="{TemplateBinding Background}"
                                     BorderBrush="{TemplateBinding BorderBrush}"
                                     BorderThickness="{TemplateBinding BorderThickness}"
                                     CornerRadius="6"
                                     Padding="{TemplateBinding Padding}">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="border" Property="Opacity" Value="0.88"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="border" Property="Opacity" Value="0.76"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="border" Property="Opacity" Value="0.48"/>
+                                    <Setter Property="Cursor" Value="Arrow"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>
             </Style>
 
             <Style TargetType="TextBox">
+                <Setter Property="Background" Value="#FFFFFF"/>
+                <Setter Property="Foreground" Value="#0F172A"/>
+                <Setter Property="BorderBrush" Value="#CBD5E1"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Padding" Value="8,6"/>
+            </Style>
+
+            <Style TargetType="PasswordBox">
                 <Setter Property="Background" Value="#FFFFFF"/>
                 <Setter Property="Foreground" Value="#0F172A"/>
                 <Setter Property="BorderBrush" Value="#CBD5E1"/>

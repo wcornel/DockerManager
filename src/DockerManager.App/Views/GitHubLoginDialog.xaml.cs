@@ -15,4 +15,10 @@ public partial class GitHubLoginDialog : Window
 
         _viewModel.RequestClose += () => Dispatcher.Invoke(Close);
     }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _viewModel.CancelValidation();
+        base.OnClosed(e);
+    }
 }

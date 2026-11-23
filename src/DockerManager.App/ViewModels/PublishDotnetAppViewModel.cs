@@ -40,9 +40,6 @@ public partial class PublishDotnetAppViewModel : ObservableObject
             : string.Empty;
 
     [ObservableProperty]
-    private string _selectedSourceFolder = string.Empty;
-
-    [ObservableProperty]
     private AppFrameworkType _framework = AppFrameworkType.Dotnet;
 
     [ObservableProperty]

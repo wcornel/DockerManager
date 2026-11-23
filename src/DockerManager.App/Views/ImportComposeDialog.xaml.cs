@@ -15,8 +15,14 @@ public partial class ImportComposeDialog : Window
 
         ViewModel.RequestClose += () =>
         {
-            DialogResult = ViewModel.IsConfirmed;
-            Close();
+            try
+            {
+                DialogResult = ViewModel.IsConfirmed;
+            }
+            catch (InvalidOperationException)
+            {
+                Close();
+            }
         };
     }
 }

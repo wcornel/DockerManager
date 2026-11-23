@@ -46,11 +46,22 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBox Text="{Binding TokenInput, UpdateSourceTrigger=PropertyChanged}" 
+                    <PasswordBox Grid.Column="0"
+                                 helpers:PasswordBoxHelper.BindPassword="True"
+                                 helpers:PasswordBoxHelper.BoundPassword="{Binding TokenInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 Visibility="{Binding IsChecked, ElementName=ShowGitHubTokenToggle, Converter={StaticResource InverseBooleanToVisibilityConverter}}"
+                                 Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="10,8"
+                                 FontFamily="Consolas, Cascadia Code, Courier New" FontSize="12"/>
+                    <TextBox Grid.Column="0" Text="{Binding TokenInput, UpdateSourceTrigger=PropertyChanged}" 
+                             Visibility="{Binding IsChecked, ElementName=ShowGitHubTokenToggle, Converter={StaticResource BooleanToVisibilityConverter}}"
                              Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="10,8"
                              FontFamily="Consolas, Cascadia Code, Courier New" FontSize="12"/>
-                    <Button Grid.Column="1" Content="{helpers:Loc GitHubLogin_PasteBtn}" Command="{Binding PasteFromClipboardCommand}"
+                    <ToggleButton x:Name="ShowGitHubTokenToggle" Grid.Column="1" Content="👁" Width="36" Margin="6,0,0,0"
+                                  Background="#F1F5F9" Foreground="#334155" BorderBrush="#CBD5E1" BorderThickness="1" Cursor="Hand"
+                                  ToolTip="{helpers:Loc Settings_ToggleSecretTip}"/>
+                    <Button Grid.Column="2" Content="{helpers:Loc GitHubLogin_PasteBtn}" Command="{Binding PasteFromClipboardCommand}"
                             Padding="12,8" Margin="8,0,0,0" Background="#F1F5F9" Foreground="#334155" BorderBrush="#CBD5E1" BorderThickness="1" Cursor="Hand"/>
                 </Grid>
 
@@ -58,7 +69,7 @@
                 <TextBlock Text="{Binding StatusMessage}" FontSize="12" Foreground="#0284C7" TextWrapping="Wrap" Margin="0,0,0,14"/>
 
                 <!-- Step 3 Validate Button -->
-                <Button Content="{helpers:Loc GitHubLogin_VerifyBtn}" Command="{Binding ValidateAndSaveTokenCommand}"
+                <Button Content="{helpers:Loc GitHubLogin_VerifyBtn}" Command="{Binding ValidateAndSaveTokenCommand}" IsDefault="True"
                         Padding="18,10" Background="#16A34A" Foreground="White" FontSize="14" FontWeight="Bold" BorderThickness="0"
                         Cursor="Hand" HorizontalAlignment="Stretch"/>
 
@@ -68,7 +79,7 @@
         <!-- Footer -->
         <DockPanel Grid.Row="2" Margin="0,16,0,0">
             <TextBlock Text="{helpers:Loc GitHubLogin_DpapiTip}" FontSize="11" Foreground="#16A34A" VerticalAlignment="Center" DockPanel.Dock="Left"/>
-            <Button Content="{helpers:Loc General_Cancel}" Command="{Binding CancelCommand}" Padding="16,8"
+            <Button Content="{helpers:Loc General_Cancel}" Command="{Binding CancelCommand}" IsCancel="True" Padding="16,8"
                     Background="#F1F5F9" Foreground="#334155" BorderBrush="#CBD5E1" BorderThickness="1" Cursor="Hand" HorizontalAlignment="Right"/>
         </DockPanel>
     </Grid>

@@ -18,23 +18,32 @@ public partial class PortConflictViewModel : ObservableObject
     public string CurrentServerName => _currentServerName;
     public string CurrentProfileName => _currentProfileName;
     public bool IsRemoteServer => _isRemoteServer;
-    public string ServerBadgeText => $"🖥️ Server: {_currentServerName}";
-    public string ProfileBadgeText => $"📄 Profiel: {(string.IsNullOrWhiteSpace(_currentProfileName) ? "Alle profielen" : _currentProfileName)}";
+    public string ServerBadgeText => LocalizationService.Instance.Get("Ports_ServerBadge", _currentServerName);
+    public string ProfileBadgeText => LocalizationService.Instance.Get(
+        "Ports_ProfileBadge",
+        string.IsNullOrWhiteSpace(_currentProfileName) ? LocalizationService.Instance.Get("Ports_AllProfiles") : _currentProfileName);
 
     [ObservableProperty]
     private bool _isScanning;
 
     [ObservableProperty]
-    private string _statusSummary = "Analyse uitvoeren...";
+    private string _statusSummary = LocalizationService.Instance.Get("Ports_Analyzing");
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ConflictBadgeText))]
     private int _conflictCount;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(WarningBadgeText))]
     private int _warningCount;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(OkBadgeText))]
     private int _okCount;
+
+    public string ConflictBadgeText => LocalizationService.Instance.Get("Ports_BadgeConflicts", ConflictCount);
+    public string WarningBadgeText => LocalizationService.Instance.Get("Ports_BadgeWarnings", WarningCount);
+    public string OkBadgeText => LocalizationService.Instance.Get("Ports_BadgeOk", OkCount);
 
     [ObservableProperty]
     private int _totalPortsCount;
@@ -54,13 +63,15 @@ public partial class PortConflictViewModel : ObservableObject
         IDockerService dockerService,
         IEnumerable<ProfileModel> profiles,
         string currentProfileName = "",
-        string currentServerName = "Lokale Docker Desktop",
+        string currentServerName = "",
         bool isRemoteServer = false)
     {
         _dockerService = dockerService;
         _profiles = profiles.ToList();
         _currentProfileName = currentProfileName;
-        _currentServerName = string.IsNullOrWhiteSpace(currentServerName) ? "Lokale Docker Desktop" : currentServerName;
+        _currentServerName = string.IsNullOrWhiteSpace(currentServerName)
+            ? LocalizationService.Instance.Get("Ports_DefaultLocalServer")
+            : currentServerName;
         _isRemoteServer = isRemoteServer;
     }
 
@@ -73,8 +84,9 @@ public partial class PortConflictViewModel : ObservableObject
     public async Task ScanAsync()
     {
         if (IsScanning) return;
+        var loc = LocalizationService.Instance;
         IsScanning = true;
-        StatusSummary = $"Docker containers en poorten controleren op '{_currentServerName}'...";
+        StatusSummary = loc.Get("Ports_ScanningServer", _currentServerName);
 
         try
         {
@@ -157,7 +169,7 @@ public partial class PortConflictViewModel : ObservableObject
                 {
                     usages.Add(new PortUsageItem
                     {
-                        SourceType = "Actieve Docker Container",
+                        SourceType = loc.Get("Ports_SourceActiveDocker"),
                         Name = active.ContainerName,
                         Details = $"{FormatHostPort(active.IpAddress, active.PublicPort)}→{active.PrivatePort}/{protocol} (Status: {active.State})",
                         IsActive = true
@@ -174,9 +186,9 @@ public partial class PortConflictViewModel : ObservableObject
 
                         usages.Add(new PortUsageItem
                         {
-                            SourceType = $"Profiel '{prof.Name}'",
+                            SourceType = loc.Get("Ports_SourceProfile", prof.Name),
                             Name = svc.DisplayName,
-                            Details = $"{FormatHostPort(p.HostIp, p.HostPort)}→{p.ContainerPort}/{protocol}" + (isCurrentlyRunning ? " [DRAAIT ACTIEF]" : ""),
+                            Details = $"{FormatHostPort(p.HostIp, p.HostPort)}→{p.ContainerPort}/{protocol}" + (isCurrentlyRunning ? loc.Get("Ports_RunningTag") : ""),
                             IsActive = isCurrentlyRunning
                         });
                     }
@@ -196,9 +208,9 @@ public partial class PortConflictViewModel : ObservableObject
                     {
                         var dupProfNames = string.Join(", ", sameProfileDuplicates.Select(g => $"'{g.Key}' ({g.Count()} containers)"));
                         item.Severity = PortConflictSeverity.Conflict;
-                        item.StatusText = "Dubbel geconfigureerd in hetzelfde profiel";
-                        item.Description = $"Poort {portNumber}/{protocol} is meerdere keren met overlappende Host-IP toegewezen binnen profiel {dupProfNames}. Deze containers kunnen niet gelijktijdig draaien.";
-                        item.Recommendation = "Wijzig de hostpoort (of het bind IP-adres) van één van de containers via 'Bewerken'.";
+                        item.StatusText = loc.Get("Ports_DupSameProfileTitle");
+                        item.Description = loc.Get("Ports_DupSameProfileDesc", portNumber, protocol, dupProfNames);
+                        item.Recommendation = loc.Get("Ports_DupSameProfileRec");
                     }
                     else if (overlappingActive.Count > 0)
                     {
@@ -213,9 +225,9 @@ public partial class PortConflictViewModel : ObservableObject
                             var extNames = string.Join(", ", externalActive.Select(a => $"'{a.ContainerName}'"));
                             var claimedNames = string.Join(", ", configuredList.Select(c => $"'{c.Service.DisplayName}' ({c.Profile.Name})"));
                             item.Severity = PortConflictSeverity.Conflict;
-                            item.StatusText = "Poort bezet door externe Docker container";
-                            item.Description = $"Poort {portNumber}/{protocol} wordt momenteel gebruikt door externe Docker container {extNames}, terwijl {claimedNames} deze poort geconfigureerd heeft.";
-                            item.Recommendation = $"Stop container {extNames} of wijzig de hostpoort van het profiel via 'Bewerken'.";
+                            item.StatusText = loc.Get("Ports_ExtOccupiedTitle");
+                            item.Description = loc.Get("Ports_ExtOccupiedDesc", portNumber, protocol, extNames, claimedNames);
+                            item.Recommendation = loc.Get("Ports_ExtOccupiedRec", extNames);
                         }
                         else
                         {
@@ -226,16 +238,16 @@ public partial class PortConflictViewModel : ObservableObject
                             if (unclaimedConflicts.Count > 0)
                             {
                                 item.Severity = PortConflictSeverity.Conflict;
-                                item.StatusText = "In gebruik door actieve container & geclaimd door ander profiel";
-                                item.Description = $"Poort {portNumber}/{protocol} draait momenteel in Docker ({activeNames}). Andere profielen met deze poort zullen niet kunnen starten zolang deze container actief is.";
-                                item.Recommendation = $"Stop container {activeNames} of pas de poort aan in de andere profielen.";
+                                item.StatusText = loc.Get("Ports_CrossActiveTitle");
+                                item.Description = loc.Get("Ports_CrossActiveDesc", portNumber, protocol, activeNames);
+                                item.Recommendation = loc.Get("Ports_CrossActiveRec", activeNames);
                             }
                             else
                             {
                                 item.Severity = PortConflictSeverity.Ok;
-                                item.StatusText = "Actief in gebruik (Normaal)";
-                                item.Description = $"Poort {portNumber}/{protocol} is correct toegewezen en draait momenteel in Docker ({activeNames}).";
-                                item.Recommendation = "Geen actie vereist.";
+                                item.StatusText = loc.Get("Ports_ActiveNormalTitle");
+                                item.Description = loc.Get("Ports_ActiveNormalDesc", portNumber, protocol, activeNames);
+                                item.Recommendation = loc.Get("Ports_NoActionNeeded");
                             }
                         }
                     }
@@ -244,9 +256,9 @@ public partial class PortConflictViewModel : ObservableObject
                         // Configured across multiple profiles with overlapping HostIp, not yet running
                         var profNames = string.Join(", ", byProfile.Select(g => $"'{g.Key}'"));
                         item.Severity = PortConflictSeverity.Warning;
-                        item.StatusText = "Gedeeld tussen meerdere profielen";
-                        item.Description = $"Poort {portNumber}/{protocol} wordt gebruikt in meerdere profielen ({profNames}). Dit is geen probleem zolang je slechts één profiel tegelijk start.";
-                        item.Recommendation = "Als je deze profielen tegelijk wilt draaien, wijzig dan de hostpoort in één van de profielen.";
+                        item.StatusText = loc.Get("Ports_SharedProfilesTitle");
+                        item.Description = loc.Get("Ports_SharedProfilesDesc", portNumber, protocol, profNames);
+                        item.Recommendation = loc.Get("Ports_SharedProfilesRec");
                     }
                     else
                     {
@@ -256,16 +268,16 @@ public partial class PortConflictViewModel : ObservableObject
                         if (hasLocalHostListener)
                         {
                             item.Severity = PortConflictSeverity.Warning;
-                            item.StatusText = "Mogelijk lokaal Windows-proces actief";
-                            item.Description = $"Poort {portNumber}/{protocol} lijkt bezet door een lokaal Windows-programma op de host. Docker starten kan mogelijk falen als de poort exclusief gebonden is.";
-                            item.Recommendation = "Controleer of er een lokale service (zoals IIS of een lokale database) draait.";
+                            item.StatusText = loc.Get("Ports_LocalHostTitle");
+                            item.Description = loc.Get("Ports_LocalHostDesc", portNumber, protocol);
+                            item.Recommendation = loc.Get("Ports_LocalHostRec");
                         }
                         else
                         {
                             item.Severity = PortConflictSeverity.Ok;
-                            item.StatusText = "Vrij & Beschikbaar";
-                            item.Description = $"Poort {portNumber}/{protocol} is uniek geconfigureerd en direct beschikbaar.";
-                            item.Recommendation = "Geen actie vereist.";
+                            item.StatusText = loc.Get("Ports_FreeTitle");
+                            item.Description = loc.Get("Ports_FreeDesc", portNumber, protocol);
+                            item.Recommendation = loc.Get("Ports_NoActionNeeded");
                         }
                     }
                 }
@@ -274,9 +286,9 @@ public partial class PortConflictViewModel : ObservableObject
                     // Running in Docker, but not defined in any loaded profile
                     var activeNames = string.Join(", ", matchingActiveDocker.Select(a => $"'{a.ContainerName}'"));
                     item.Severity = PortConflictSeverity.Warning;
-                    item.StatusText = "Actief in Docker (Niet in profiel)";
-                    item.Description = $"Poort {portNumber}/{protocol} is bezet door een externe Docker container ({activeNames}) die niet in de profielen staat.";
-                    item.Recommendation = "Houd hier rekening mee bij het toewijzen van nieuwe poorten.";
+                    item.StatusText = loc.Get("Ports_ExternalOnlyTitle");
+                    item.Description = loc.Get("Ports_ExternalOnlyDesc", portNumber, protocol, activeNames);
+                    item.Recommendation = loc.Get("Ports_ExternalOnlyRec");
                 }
 
                 item.Usages = usages;
@@ -297,17 +309,17 @@ public partial class PortConflictViewModel : ObservableObject
 
             if (ConflictCount > 0)
             {
-                StatusSummary = $"⚠️ {ConflictCount} poortconflict(en) en {WarningCount} waarschuwing(en) gevonden.";
+                StatusSummary = loc.Get("Ports_SummaryConflicts", ConflictCount, WarningCount);
                 SelectedFilter = "Issues";
             }
             else if (WarningCount > 0)
             {
-                StatusSummary = $"ℹ️ Geen directe conflicten. {WarningCount} gedeelde poort(en) tussen profielen.";
+                StatusSummary = loc.Get("Ports_SummaryWarnings", WarningCount);
                 SelectedFilter = "All";
             }
             else
             {
-                StatusSummary = $"✅ Uitstekend! Geen poortconflicten gevonden over alle {TotalPortsCount} gecontroleerde poorten.";
+                StatusSummary = loc.Get("Ports_SummaryOk", TotalPortsCount);
                 SelectedFilter = "All";
             }
 
@@ -315,7 +327,7 @@ public partial class PortConflictViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            StatusSummary = $"Fout bij poortcontrole: {ex.Message}";
+            StatusSummary = loc.Get("Ports_ScanError", ex.Message);
         }
         finally
         {

@@ -20,6 +20,11 @@ public partial class GeneralSettingsTabViewModel : SettingsTabViewModel
     [ObservableProperty]
     private string _selectedLanguage = "auto";
 
+    partial void OnSelectedLanguageChanged(string value)
+    {
+        OnPropertyChanged(nameof(SelectedLanguageDisplay));
+    }
+
     public string[] AvailableLanguages { get; } = new[] { "Systeemtaal / System Default", "Nederlands (NL)", "English (EN)" };
 
     public string SelectedLanguageDisplay
@@ -91,8 +96,7 @@ public partial class GeneralSettingsTabViewModel : SettingsTabViewModel
         _gitHubAuthService = gitHubAuthService;
         _gitHubProfileService = gitHubProfileService;
 
-        Header = "⚙️ Algemeen";
-        Icon = "⚙️";
+        Header = LocalizationService.Instance.Get("Settings_TabGeneral");
 
         LoadFromSettings();
     }
@@ -119,7 +123,7 @@ public partial class GeneralSettingsTabViewModel : SettingsTabViewModel
         IsLoggedIn = !string.IsNullOrEmpty(token);
         LoggedInUsername = !string.IsNullOrWhiteSpace(_settingsService.Settings.LoggedInUsername)
             ? _settingsService.Settings.LoggedInUsername
-            : (IsLoggedIn ? "GitHub Gebruiker" : string.Empty);
+            : (IsLoggedIn ? LocalizationService.Instance.Get("Settings_GitHubUserFallback") : string.Empty);
     }
 
     [RelayCommand]
@@ -136,7 +140,7 @@ public partial class GeneralSettingsTabViewModel : SettingsTabViewModel
         _settingsService.Settings.LoggedInUsername = string.Empty;
         _settingsService.Save();
         RefreshLoginStatus();
-        GitHubTestStatus = "Uitgelogd van GitHub.";
+        GitHubTestStatus = LocalizationService.Instance.Get("Settings_GitHubLoggedOut");
     }
 
     [RelayCommand]
@@ -144,7 +148,7 @@ public partial class GeneralSettingsTabViewModel : SettingsTabViewModel
     {
         if (IsGitHubTesting) return;
         IsGitHubTesting = true;
-        GitHubTestStatus = "Verbinding testen...";
+        GitHubTestStatus = LocalizationService.Instance.Get("Settings_TestingConnection");
 
         try
         {
@@ -155,7 +159,7 @@ public partial class GeneralSettingsTabViewModel : SettingsTabViewModel
         }
         catch (Exception ex)
         {
-            GitHubTestStatus = $"❌ Fout: {ex.Message}";
+            GitHubTestStatus = $"❌ {ex.Message}";
         }
         finally
         {

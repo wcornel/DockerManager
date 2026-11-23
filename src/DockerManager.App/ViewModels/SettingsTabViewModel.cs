@@ -14,7 +14,4 @@ public abstract partial class SettingsTabViewModel : ObservableObject
 {
     [ObservableProperty]
     private string _header = string.Empty;
-
-    [ObservableProperty]
-    private string _icon = string.Empty;
 }

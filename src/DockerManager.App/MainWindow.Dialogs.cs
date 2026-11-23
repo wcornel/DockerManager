@@ -9,32 +9,6 @@ namespace DockerManager.App;
 
 public partial class MainWindow
 {
-    private void ShowAddProfileDialog()
-    {
-        try
-        {
-            var existingNames = _viewModel.Profiles.Select(p => p.Name);
-            var dialog = new AddProfileDialog(existingNames, _viewModel.Profiles, _settingsService, _credentialService)
-            {
-                Owner = this
-            };
-
-            if (dialog.ShowDialog() == true && dialog.CreatedProfile != null)
-            {
-                var newProfile = dialog.CreatedProfile;
-                _viewModel.Profiles.Add(newProfile);
-                _viewModel.SelectedProfile = newProfile;
-                _ = _viewModel.SaveCurrentProfileAsync();
-
-                _viewModel.StatusNotification = $"✨ Nieuw profiel '{newProfile.Name}' aangemaakt en geselecteerd!";
-            }
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"Fout bij aanmaken van profiel: {ex.Message}", "Fout", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-    }
-
     private void ShowPublishAppDialog(AppFrameworkType framework)
     {
         try
@@ -78,37 +52,14 @@ public partial class MainWindow
                     _ = _viewModel.SaveCurrentProfileAsync();
                     _ = _viewModel.RefreshAllCardStatusesAsync();
 
-                    _viewModel.StatusNotification = $"✨ App '{publishVm.CreatedServiceDefinition.DisplayName}' toegevoegd aan profiel '{_viewModel.SelectedProfile.Name}'!";
+                    _viewModel.StatusNotification = LocalizationService.Instance.Get("Publish_AddedNotification", publishVm.CreatedServiceDefinition.DisplayName, _viewModel.SelectedProfile.Name);
                 }
             }
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Fout bij openen van Publiceren Wizard: {ex.Message}", "Fout", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-    }
-
-
-    private void ShowGitHubLoginDialog()
-    {
-        try
-        {
-            var loginVm = new GitHubLoginViewModel(_gitHubAuthService, _credentialService, _settingsService);
-            var dialog = new GitHubLoginDialog(loginVm)
-            {
-                Owner = this
-            };
-            dialog.ShowDialog();
-
-            if (loginVm.LoginSucceeded)
-            {
-                _viewModel.RefreshAuthStatus();
-                _ = _viewModel.LoadProfilesAsync(forceRefresh: true);
-            }
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"Fout bij inloggen met GitHub: {ex.Message}", "Fout", MessageBoxButton.OK, MessageBoxImage.Error);
+            var loc = LocalizationService.Instance;
+            MessageBox.Show(loc.Get("Publish_OpenError", ex.Message), loc.Get("General_ErrorTitle"), MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -145,7 +96,8 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Fout bij openen van instellingen: {ex.Message}", "Fout", MessageBoxButton.OK, MessageBoxImage.Error);
+            var loc = LocalizationService.Instance;
+            MessageBox.Show(loc.Get("Settings_OpenError", ex.Message), loc.Get("General_ErrorTitle"), MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -230,7 +182,8 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Fout bij bewerken van container: {ex.Message}", "Fout", MessageBoxButton.OK, MessageBoxImage.Error);
+            var loc = LocalizationService.Instance;
+            MessageBox.Show(loc.Get("EditService_EditError", ex.Message), loc.Get("General_ErrorTitle"), MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -238,7 +191,8 @@ public partial class MainWindow
     {
         if (_viewModel.SelectedProfile == null)
         {
-            MessageBox.Show("Selecteer eerst een profiel om een container aan toe te voegen.", "Geen profiel", MessageBoxButton.OK, MessageBoxImage.Warning);
+            var loc = LocalizationService.Instance;
+            MessageBox.Show(loc.Get("EditService_NoProfileMsg"), loc.Get("EditService_NoProfileTitle"), MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -266,7 +220,8 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Fout bij toevoegen van container: {ex.Message}", "Fout", MessageBoxButton.OK, MessageBoxImage.Error);
+            var loc = LocalizationService.Instance;
+            MessageBox.Show(loc.Get("EditService_AddError", ex.Message), loc.Get("General_ErrorTitle"), MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -277,9 +232,10 @@ public partial class MainWindow
 
     private Task<bool> ConfirmDeleteProfileAsync(ProfileModel profile)
     {
+        var loc = LocalizationService.Instance;
         var result = MessageBox.Show(
-            $"Weet je zeker dat je profiel '{profile.Name}' definitief wilt verwijderen?\n\nDe actieve containers van dit profiel worden gestopt en het configuratiebestand wordt verwijderd.",
-            "Profiel Verwijderen",
+            loc.Get("DeleteProfile_ConfirmBody", profile.Name),
+            loc.Get("DeleteProfile_ConfirmTitle"),
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning);
 
@@ -299,7 +255,8 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Fout bij openen van log-venster: {ex.Message}", "Fout", MessageBoxButton.OK, MessageBoxImage.Error);
+            var loc = LocalizationService.Instance;
+            MessageBox.Show(loc.Get("LogViewer_OpenError", ex.Message), loc.Get("General_ErrorTitle"), MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -308,7 +265,7 @@ public partial class MainWindow
         try
         {
             var server = _viewModel.SelectedServer;
-            var serverName = server?.Name ?? "Lokale Docker Desktop";
+            var serverName = server?.Name ?? LocalizationService.Instance.Get("Ports_DefaultLocalServer");
             var isRemote = server != null && server.HostType.Equals("Tcp", StringComparison.OrdinalIgnoreCase);
             var conflictVm = new PortConflictViewModel(_dockerService, _viewModel.Profiles, _viewModel.SelectedProfile?.Name ?? "", serverName, isRemote);
             var dialog = new PortConflictDialog(conflictVm)
@@ -319,7 +276,8 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Fout bij openen van poortconflict analyse: {ex.Message}", "Fout", MessageBoxButton.OK, MessageBoxImage.Error);
+            var loc = LocalizationService.Instance;
+            MessageBox.Show(loc.Get("Ports_OpenError", ex.Message), loc.Get("General_ErrorTitle"), MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 

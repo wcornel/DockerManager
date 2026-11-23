@@ -154,12 +154,12 @@
                                             <ColumnDefinition Width="70"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBox Grid.Column="0" Text="{Binding HostPortDisplay, UpdateSourceTrigger=PropertyChanged}" ToolTip="Host Poort (bijv. 8009 of 0.0.0.0:8009 of 127.0.0.1:8009)"
+                                        <TextBox Grid.Column="0" Text="{Binding HostPortDisplay, UpdateSourceTrigger=PropertyChanged}" ToolTip="{helpers:Loc EditService_HostPortTip}"
                                                  Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4"/>
                                         <TextBlock Grid.Column="1" Text=" → " Foreground="#64748B" VerticalAlignment="Center" Margin="6,0"/>
-                                        <TextBox Grid.Column="2" Text="{Binding ContainerPort, UpdateSourceTrigger=PropertyChanged}" ToolTip="Container Poort"
+                                        <TextBox Grid.Column="2" Text="{Binding ContainerPort, UpdateSourceTrigger=PropertyChanged}" ToolTip="{helpers:Loc EditService_ContainerPortTip}"
                                                  Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4"/>
-                                        <TextBox Grid.Column="3" Text="{Binding Protocol, UpdateSourceTrigger=PropertyChanged}" ToolTip="Protocol (tcp/udp)" Margin="6,0,0,0"
+                                        <TextBox Grid.Column="3" Text="{Binding Protocol, UpdateSourceTrigger=PropertyChanged}" ToolTip="{helpers:Loc EditService_ProtocolTip}" Margin="6,0,0,0"
                                                  Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4"/>
                                         <Button Grid.Column="4" Content="✕" 
                                                 Command="{Binding DataContext.RemovePortCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
@@ -192,15 +192,15 @@
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBox Grid.Column="0" Text="{Binding HostPath, UpdateSourceTrigger=PropertyChanged}" ToolTip="Host pad of Named Volume"
+                                        <TextBox Grid.Column="0" Text="{Binding HostPath, UpdateSourceTrigger=PropertyChanged}" ToolTip="{helpers:Loc EditService_VolumeHostTip}"
                                                  Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4"/>
                                         <TextBlock Grid.Column="1" Text=" : " Foreground="#64748B" VerticalAlignment="Center" Margin="6,0"/>
-                                        <TextBox Grid.Column="2" Text="{Binding ContainerPath, UpdateSourceTrigger=PropertyChanged}" ToolTip="Pad binnen de container (bijv. /app/data)"
+                                        <TextBox Grid.Column="2" Text="{Binding ContainerPath, UpdateSourceTrigger=PropertyChanged}" ToolTip="{helpers:Loc EditService_VolumeContainerTip}"
                                                  Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4"/>
                                         <CheckBox Grid.Column="3" Content="Named" IsChecked="{Binding IsNamedVolume}" VerticalAlignment="Center" Margin="8,0,0,0" FontSize="11"
-                                                  ToolTip="Docker Named Volume (uitgevinkt = host pad / bind-mount)"/>
+                                                  ToolTip="{helpers:Loc EditService_VolumeNamedTip}"/>
                                         <CheckBox Grid.Column="4" Content="RO" IsChecked="{Binding ReadOnly}" VerticalAlignment="Center" Margin="6,0,0,0" FontSize="11"
-                                                  ToolTip="Read-Only mount (:ro)"/>
+                                                  ToolTip="{helpers:Loc EditService_VolumeRoTip}"/>
                                         <Button Grid.Column="5" Content="✕" 
                                                 Command="{Binding DataContext.RemoveVolumeCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                 CommandParameter="{Binding}"
@@ -236,12 +236,12 @@
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBox Grid.Column="0" Text="{Binding Key, UpdateSourceTrigger=PropertyChanged}" ToolTip="Key (bijv. DB_HOST)"
+                                        <TextBox Grid.Column="0" Text="{Binding Key, UpdateSourceTrigger=PropertyChanged}" ToolTip="{helpers:Loc EditService_EnvKeyTip}"
                                                  Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4"/>
                                         <TextBlock Grid.Column="1" Text=" = " Foreground="#64748B" VerticalAlignment="Center" Margin="6,0"/>
                                         <TextBox Grid.Column="2" Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" ToolTip="Value"
                                                  Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4"/>
-                                        <Button Grid.Column="3" Content="📋" ToolTip="Kopieer KEY=VALUE"
+                                        <Button Grid.Column="3" Content="📋" ToolTip="{helpers:Loc EditService_EnvCopyTip}"
                                                 Command="{Binding DataContext.CopyEnvVarCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                 CommandParameter="{Binding}"
                                                 Margin="6,0,0,0" Padding="8,4" Background="#F1F5F9" Foreground="#475569" BorderBrush="#CBD5E1" BorderThickness="1"/>
@@ -283,13 +283,13 @@
                             <!-- Subdomain input -->
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="https://" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#64748B"/>
                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding CloudflareSubdomain, UpdateSourceTrigger=PropertyChanged}" 
-                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4" Margin="4,0,4,0" ToolTip="Subdomein (bijv. api of app)"/>
+                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4" Margin="4,0,4,0" ToolTip="{helpers:Loc EditService_CloudflareSubdomainTip}"/>
                             <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding CloudflareDomain, StringFormat='.{0}'}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#64748B"/>
 
                             <!-- Target Host Port -->
                             <TextBlock Grid.Row="0" Grid.Column="4" Text="{helpers:Loc EditService_CloudflarePort}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#64748B"/>
                             <TextBox Grid.Row="0" Grid.Column="5" Text="{Binding SelectedCloudflarePort, UpdateSourceTrigger=PropertyChanged}" 
-                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4" Margin="6,0,0,0" ToolTip="Hostpoort van de container (bijv. 8002)"/>
+                                     Background="#FFFFFF" Foreground="#0F172A" BorderBrush="#CBD5E1" Padding="6,4" Margin="6,0,0,0" ToolTip="{helpers:Loc EditService_CloudflarePortTip}"/>
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="6" Margin="0,6,0,0" FontSize="11" Foreground="#9A3412" TextWrapping="Wrap"
                                        Text="{helpers:Loc EditService_CloudflareTip}"/>
@@ -306,11 +306,11 @@
 
         <!-- Footer -->
         <DockPanel Grid.Row="2" Margin="0,16,0,0">
-            <Button Content="{helpers:Loc General_Cancel}" Command="{Binding CancelCommand}" Padding="16,8"
+            <Button Content="{helpers:Loc General_Cancel}" Command="{Binding CancelCommand}" IsCancel="True" Padding="16,8"
                     Background="#F1F5F9" Foreground="#334155" BorderBrush="#CBD5E1" BorderThickness="1" Cursor="Hand" DockPanel.Dock="Left"/>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <TextBlock Text="{Binding ErrorMessage}" Foreground="#DC2626" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                <Button Content="{helpers:Loc General_Save}" Command="{Binding SaveCommand}" Padding="20,8"
+                <Button Content="{helpers:Loc General_Save}" Command="{Binding SaveCommand}" IsDefault="True" Padding="20,8"
                         Background="#16A34A" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
             </StackPanel>
         </DockPanel>

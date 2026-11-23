@@ -35,7 +35,7 @@ A modern, high-performance desktop hub built with **C# .NET 10 (WPF)** for manag
 ## 🚀 Getting Started
 
 ### Installation
-Download the latest **`DockerManager-Setup.exe`** from the [Releases](https://github.com/wcornel/DockerManager/releases) page.
+Download the latest **`DockerManager-win-Setup.exe`** from the [Releases](https://github.com/wcornel/DockerManager/releases) page.
 The installer automatically creates desktop and start menu shortcuts and handles silent delta updates.
 
 ### Configuration (`profiles/example.json`)
@@ -71,9 +71,20 @@ The installer automatically creates desktop and start menu shortcuts and handles
 * [Velopack CLI](https://velopack.io/) (`dotnet tool install -g vpk`)
 
 ### Build & Package
-Run the automated build script:
+Run a local portable build (runs all unit tests and outputs `publish\DockerManager.App.exe`):
 ```powershell
-./build.ps1
+.\build.ps1
+```
+
+Build the official Velopack installer package (outputs `Releases\DockerManager-win-Setup.exe`):
+```powershell
+.\build.ps1 -Release
+# or: .\build-release.bat
+```
+
+Run the automated unit test suite directly:
+```powershell
+dotnet test DockerManager.slnx -c Release
 ```
 
 ---

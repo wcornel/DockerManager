@@ -22,7 +22,14 @@ public static class TaskExtensions
         {
             var prefix = string.IsNullOrWhiteSpace(context) ? "SafeFireAndForget" : context;
             AppLogger.LogError(prefix, ex, "Unhandled background exception");
-            onException?.Invoke(ex);
+            try
+            {
+                onException?.Invoke(ex);
+            }
+            catch (Exception callbackEx)
+            {
+                AppLogger.LogError(prefix, callbackEx, "Unhandled exception inside SafeFireAndForget error callback");
+            }
         }
     }
 }

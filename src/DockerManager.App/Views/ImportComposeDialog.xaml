@@ -137,9 +137,9 @@
         <DockPanel Grid.Row="2" Margin="0,8,0,0">
             <TextBlock Text="{Binding StatusMessage}" FontSize="12.5" Foreground="#2563EB" FontWeight="Medium" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="480" DockPanel.Dock="Left"/>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                <Button Content="{helpers:Loc General_Cancel}" Command="{Binding CancelCommand}" Padding="16,8" Margin="0,0,8,0"
+                <Button Content="{helpers:Loc General_Cancel}" Command="{Binding CancelCommand}" IsCancel="True" Padding="16,8" Margin="0,0,8,0"
                         Background="#F1F5F9" Foreground="#334155" BorderBrush="#CBD5E1" BorderThickness="1" Cursor="Hand"/>
-                <Button Content="{helpers:Loc ImportCompose_ImportBtn}" Command="{Binding ConfirmImportCommand}" Padding="20,8"
+                <Button Content="{helpers:Loc ImportCompose_ImportBtn}" Command="{Binding ConfirmImportCommand}" IsDefault="True" Padding="20,8"
                         Background="#16A34A" Foreground="White" FontWeight="Bold" BorderThickness="0" Cursor="Hand"/>
             </StackPanel>
         </DockPanel>

@@ -48,11 +48,14 @@ public static class SafeClipboardHelper
         }
     }
 
-    private static void OnTextBoxCopy(object sender, ExecutedRoutedEventArgs e)
+    internal static void OnTextBoxCopy(object sender, ExecutedRoutedEventArgs e)
     {
-        if (sender is TextBox tb && !string.IsNullOrEmpty(tb.SelectedText))
+        if (sender is TextBox tb)
         {
-            SetText(tb.SelectedText);
+            if (!string.IsNullOrEmpty(tb.SelectedText))
+            {
+                SetText(tb.SelectedText);
+            }
             e.Handled = true;
         }
     }
@@ -66,11 +69,11 @@ public static class SafeClipboardHelper
         }
     }
 
-    private static void OnTextBoxCut(object sender, ExecutedRoutedEventArgs e)
+    internal static void OnTextBoxCut(object sender, ExecutedRoutedEventArgs e)
     {
-        if (sender is TextBox tb && !tb.IsReadOnly && !string.IsNullOrEmpty(tb.SelectedText))
+        if (sender is TextBox tb)
         {
-            if (SetText(tb.SelectedText))
+            if (!tb.IsReadOnly && !string.IsNullOrEmpty(tb.SelectedText) && SetText(tb.SelectedText))
             {
                 tb.SelectedText = string.Empty;
             }
@@ -131,6 +134,7 @@ public static class SafeClipboardHelper
     public static bool SetText(string text, int retries = DefaultRetries, int delayMs = DelayBetweenRetriesMs)
     {
         if (string.IsNullOrEmpty(text)) return false;
+        if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA) return false;
 
         for (int i = 0; i < retries; i++)
         {
@@ -164,6 +168,8 @@ public static class SafeClipboardHelper
     /// </summary>
     public static string? GetText(int retries = DefaultRetries, int delayMs = DelayBetweenRetriesMs)
     {
+        if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA) return null;
+
         for (int i = 0; i < retries; i++)
         {
             try

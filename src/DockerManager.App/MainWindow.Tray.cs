@@ -88,7 +88,7 @@ public partial class MainWindow
         contextMenu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
 
         var currentServer = _viewModel.SelectedServer;
-        var currentServerName = currentServer?.Name ?? "Lokaal";
+        var currentServerName = currentServer?.Name ?? loc.Get("Tray_Local");
 
         // Server menu item with dropdown
         var serverMenuItem = new System.Windows.Forms.ToolStripMenuItem($"{loc.Get("Tray_Server")}: {currentServerName}");
@@ -115,7 +115,8 @@ public partial class MainWindow
 
         // Profile menu item with dropdown
         var currentProfile = _viewModel.SelectedProfile;
-        var currentProfileName = currentProfile?.Name ?? "(Geen profiel)";
+        var hasProfile = currentProfile != null && !string.IsNullOrWhiteSpace(currentProfile.Name);
+        var currentProfileName = hasProfile ? currentProfile!.Name : loc.Get("Tray_NoProfile");
 
         var profileMenuItem = new System.Windows.Forms.ToolStripMenuItem($"{loc.Get("Tray_Profile")}: {currentProfileName}");
         profileMenuItem.Font = _trayBoldFont;
@@ -141,10 +142,10 @@ public partial class MainWindow
 
         contextMenu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
 
-        var startText = string.IsNullOrEmpty(currentProfileName) ? loc.Get("Tray_StartAll") : $"{loc.Get("Tray_StartAll")} ({currentProfileName})";
-        var stopText = string.IsNullOrEmpty(currentProfileName) ? loc.Get("Tray_StopAll") : $"{loc.Get("Tray_StopAll")} ({currentProfileName})";
-        var updateText = string.IsNullOrEmpty(currentProfileName) ? loc.Get("Tray_UpdateAll") : $"{loc.Get("Tray_UpdateAll")} ({currentProfileName})";
-        var backupText = string.IsNullOrEmpty(currentProfileName) ? loc.Get("Tray_BackupVolumes") : $"{loc.Get("Tray_BackupVolumes")} ({currentProfileName})";
+        var startText = hasProfile ? $"{loc.Get("Tray_StartAll")} ({currentProfile!.Name})" : loc.Get("Tray_StartAll");
+        var stopText = hasProfile ? $"{loc.Get("Tray_StopAll")} ({currentProfile!.Name})" : loc.Get("Tray_StopAll");
+        var updateText = hasProfile ? $"{loc.Get("Tray_UpdateAll")} ({currentProfile!.Name})" : loc.Get("Tray_UpdateAll");
+        var backupText = hasProfile ? $"{loc.Get("Tray_BackupVolumes")} ({currentProfile!.Name})" : loc.Get("Tray_BackupVolumes");
 
         contextMenu.Items.Add(new System.Windows.Forms.ToolStripMenuItem(startText, null, (_, _) => _ = _viewModel.StartAllCommand.ExecuteAsync(null)));
         contextMenu.Items.Add(new System.Windows.Forms.ToolStripMenuItem(stopText, null, (_, _) => _ = _viewModel.StopAllCommand.ExecuteAsync(null)));
@@ -223,8 +224,11 @@ public partial class MainWindow
     private void UpdateTrayTooltip()
     {
         if (_notifyIcon == null || _trayDisposed) return;
+        var loc = LocalizationService.Instance;
         var server = _viewModel.SelectedServer?.Name ?? "Docker";
-        var profile = _viewModel.SelectedProfile?.Name ?? "Geen profiel";
+        var profile = !string.IsNullOrWhiteSpace(_viewModel.SelectedProfile?.Name)
+            ? _viewModel.SelectedProfile.Name
+            : loc.Get("Tray_NoProfile");
         var text = $"DockerManager — {server} ({profile})";
         if (text.Length > 63)
         {

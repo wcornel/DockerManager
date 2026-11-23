@@ -1,4 +1,5 @@
 using System.Windows;
+using DockerManager.App.Services;
 using DockerManager.App.ViewModels;
 
 namespace DockerManager.App.Views;
@@ -14,6 +15,16 @@ public partial class PortConflictDialog : Window
         DataContext = _viewModel;
         _viewModel.RequestClose += () => Close();
 
-        Loaded += async (_, _) => await _viewModel.InitializeAsync();
+        Loaded += async (_, _) =>
+        {
+            try
+            {
+                await _viewModel.InitializeAsync();
+            }
+            catch (Exception ex)
+            {
+                AppLogger.LogError(nameof(PortConflictDialog), ex, "Port conflict scan failed on dialog load");
+            }
+        };
     }
 }

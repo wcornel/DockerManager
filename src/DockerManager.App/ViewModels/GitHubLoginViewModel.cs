@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Threading;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -11,12 +12,13 @@ public partial class GitHubLoginViewModel : ObservableObject
     private readonly IGitHubAuthService _authService;
     private readonly ICredentialService _credentialService;
     private readonly ISettingsService _settingsService;
+    private CancellationTokenSource? _validationCts;
 
     [ObservableProperty]
     private string _tokenInput = string.Empty;
 
     [ObservableProperty]
-    private string _statusMessage = "Klik op 'Genereer Token op GitHub' om direct een token met de juiste permissies aan te maken, of plak hieronder een bestaand token:";
+    private string _statusMessage = LocalizationService.Instance.Get("GitHubLogin_DefaultPrompt");
 
     [ObservableProperty]
     private bool _isLoading;
@@ -40,15 +42,15 @@ public partial class GitHubLoginViewModel : ObservableObject
         _settingsService = settingsService;
 
         var existingToken = _credentialService.GetGitHubToken();
-        if (!string.IsNullOrWhiteSpace(existingToken))
-        {
-            TokenInput = existingToken;
-        }
+        StatusMessage = !string.IsNullOrWhiteSpace(existingToken)
+            ? LocalizationService.Instance.Get("GitHubLogin_ExistingTokenHint")
+            : LocalizationService.Instance.Get("GitHubLogin_DefaultPrompt");
     }
 
     [RelayCommand]
     private void OpenGitHubGenerateTokenPage()
     {
+        var loc = LocalizationService.Instance;
         try
         {
             // Opens GitHub new token page with pre-selected scopes for repo and packages!
@@ -58,58 +60,92 @@ public partial class GitHubLoginViewModel : ObservableObject
                 FileName = url,
                 UseShellExecute = true
             });
-            StatusMessage = "GitHub geopend! Klik onderaan op 'Generate token', kopieer het token en plak het hieronder.";
+            StatusMessage = loc.Get("GitHubLogin_BrowserOpened");
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Kon browser niet automatisch openen: {ex.Message}";
+            StatusMessage = loc.Get("GitHubLogin_BrowserFailed", ex.Message);
         }
     }
 
     [RelayCommand]
     private async Task ValidateAndSaveTokenAsync()
     {
+        var loc = LocalizationService.Instance;
         if (string.IsNullOrWhiteSpace(TokenInput))
         {
-            StatusMessage = "⚠️ Voer eerst een GitHub token in (begint meestal met 'ghp_' of 'github_pat_').";
+            StatusMessage = loc.Get("GitHubLogin_EmptyToken");
             return;
         }
 
+        CancelValidation();
+        var cts = new CancellationTokenSource();
+        var previous = Interlocked.Exchange(ref _validationCts, cts);
+        if (previous != null)
+        {
+            try { previous.Cancel(); } catch { }
+            try { previous.Dispose(); } catch { }
+        }
+
+        var ct = cts.Token;
         IsLoading = true;
-        StatusMessage = "Token controleren bij GitHub...";
+        StatusMessage = loc.Get("GitHubLogin_Validating");
 
         try
         {
-            var username = await _authService.FetchAuthenticatedUsernameAsync(TokenInput.Trim());
+            var trimmedToken = TokenInput.Trim();
+            var username = await _authService.FetchAuthenticatedUsernameAsync(trimmedToken, ct);
+            ct.ThrowIfCancellationRequested();
+
             if (string.IsNullOrWhiteSpace(username))
             {
-                StatusMessage = "❌ Ongeldig token of geen verbinding met GitHub. Controleer of het token juist is gekopieerd.";
-                IsLoading = false;
+                StatusMessage = loc.Get("GitHubLogin_InvalidToken");
                 return;
             }
 
             // Save encrypted token via Windows DPAPI
-            _credentialService.SaveGitHubToken(TokenInput.Trim());
+            _credentialService.SaveGitHubToken(trimmedToken);
             _settingsService.Settings.HasGitHubToken = true;
             _settingsService.Settings.LoggedInUsername = username;
-            _settingsService.Settings.GitHubRepoOwner = username;
+            if (string.IsNullOrWhiteSpace(_settingsService.Settings.GitHubRepoOwner))
+            {
+                _settingsService.Settings.GitHubRepoOwner = username;
+            }
             _settingsService.Save();
 
             LoggedInUser = username;
             IsSuccess = true;
             LoginSucceeded = true;
-            StatusMessage = $"✅ Succesvol gekoppeld als @{username}!";
+            StatusMessage = loc.Get("GitHubLogin_Success", username);
 
-            await Task.Delay(1200);
+            await Task.Delay(1200, ct);
             RequestClose?.Invoke();
+        }
+        catch (OperationCanceledException)
+        {
+            // Validation cancelled via Cancel or window close
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Fout bij valideren: {ex.Message}";
+            StatusMessage = loc.Get("GitHubLogin_Error", ex.Message);
         }
         finally
         {
+            if (Interlocked.CompareExchange(ref _validationCts, null, cts) == cts)
+            {
+                try { cts.Dispose(); } catch { }
+            }
             IsLoading = false;
+        }
+    }
+
+    public void CancelValidation()
+    {
+        var cts = Interlocked.Exchange(ref _validationCts, null);
+        if (cts != null)
+        {
+            try { cts.Cancel(); } catch { }
+            try { cts.Dispose(); } catch { }
         }
     }
 
@@ -122,7 +158,7 @@ public partial class GitHubLoginViewModel : ObservableObject
             if (!string.IsNullOrWhiteSpace(text))
             {
                 TokenInput = text.Trim();
-                StatusMessage = "Token geplakt! Klik nu op 'Verifieer & Inloggen'.";
+                StatusMessage = LocalizationService.Instance.Get("GitHubLogin_Pasted");
             }
         }
         catch { }
@@ -131,6 +167,7 @@ public partial class GitHubLoginViewModel : ObservableObject
     [RelayCommand]
     private void Cancel()
     {
+        CancelValidation();
         RequestClose?.Invoke();
     }
 }

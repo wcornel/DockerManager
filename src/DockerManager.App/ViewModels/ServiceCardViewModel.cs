@@ -120,7 +120,15 @@ public partial class ServiceCardViewModel : ObservableObject, IDisposable
         }
     }
 
+    public string WebUrlToolTip => string.IsNullOrWhiteSpace(WebUrl)
+        ? string.Empty
+        : LocalizationService.Instance.Get("Card_OpenWebUrlTip", WebUrl);
+
     public bool HasCloudflareUrl => !string.IsNullOrWhiteSpace(CloudflareUrl);
+
+    public string CloudflareUrlToolTip => string.IsNullOrWhiteSpace(CloudflareUrl)
+        ? string.Empty
+        : LocalizationService.Instance.Get("Card_OpenCloudflareUrlTip", CloudflareUrl);
 
     public string CloudflareUrl
     {
@@ -222,6 +230,8 @@ public partial class ServiceCardViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(LastUpdatedText));
         OnPropertyChanged(nameof(PortsSummary));
         OnPropertyChanged(nameof(VolumesSummary));
+        OnPropertyChanged(nameof(WebUrlToolTip));
+        OnPropertyChanged(nameof(CloudflareUrlToolTip));
     }
 
     public void UpdateService(ServiceDefinition updated)
@@ -233,8 +243,10 @@ public partial class ServiceCardViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(VolumesSummary));
         OnPropertyChanged(nameof(HasWebPort));
         OnPropertyChanged(nameof(WebUrl));
+        OnPropertyChanged(nameof(WebUrlToolTip));
         OnPropertyChanged(nameof(HasCloudflareUrl));
         OnPropertyChanged(nameof(CloudflareUrl));
+        OnPropertyChanged(nameof(CloudflareUrlToolTip));
         OnPropertyChanged(nameof(LastUpdatedText));
     }
 

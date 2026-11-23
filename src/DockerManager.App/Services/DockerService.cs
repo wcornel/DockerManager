@@ -429,12 +429,13 @@ public partial class DockerService : IDockerService, IDisposable
         }
         catch (DockerContainerNotFoundException)
         {
-            onLineReceived($"⚠️ De container '{containerName}' bestaat momenteel niet in Docker.");
-            onLineReceived("💡 Klik eerst op '▶ Start' op de container-kaart om de image te downloaden en de container te starten.");
+            var loc = LocalizationService.Instance;
+            onLineReceived(loc.Get("Docker_Log_ContainerMissing", containerName));
+            onLineReceived(loc.Get("Docker_Log_ContainerMissingTip"));
         }
         catch (Exception ex)
         {
-            onLineReceived($"⚠️ Fout bij ophalen van logs: {ex.Message}");
+            onLineReceived(LocalizationService.Instance.Get("Docker_Log_FetchError", ex.Message));
         }
     }
 
@@ -464,22 +465,7 @@ public partial class DockerService : IDockerService, IDisposable
         var containerName = service.GetEffectiveContainerName();
 
         // Port bindings
-        var portBindings = new Dictionary<string, IList<PortBinding>>();
-        var exposedPorts = new Dictionary<string, EmptyStruct>();
-
-        foreach (var p in service.Ports)
-        {
-            var key = $"{p.ContainerPort}/{p.Protocol}";
-            exposedPorts[key] = new EmptyStruct();
-            portBindings[key] = new List<PortBinding>
-            {
-                new() 
-                { 
-                    HostIP = string.IsNullOrWhiteSpace(p.HostIp) ? "0.0.0.0" : p.HostIp,
-                    HostPort = p.HostPort.ToString() 
-                }
-            };
-        }
+        var (exposedPorts, portBindings) = BuildPortBindings(service.Ports);
 
         // Volume mounts / binds
         var binds = new List<string>();
@@ -507,13 +493,15 @@ public partial class DockerService : IDockerService, IDisposable
             }
         }
 
-        var profileNetwork = await EnsureProfileNetworkAsync(client, profileName, ct);
+        var networkMode = !string.IsNullOrWhiteSpace(service.NetworkMode)
+            ? service.NetworkMode
+            : await EnsureProfileNetworkAsync(client, profileName, ct);
 
         var hostConfig = new HostConfig
         {
             PortBindings = portBindings,
             Binds = binds,
-            NetworkMode = !string.IsNullOrWhiteSpace(service.NetworkMode) ? service.NetworkMode : profileNetwork,
+            NetworkMode = networkMode,
             ExtraHosts = new List<string> { "host.docker.internal:host-gateway" },
             RestartPolicy = new RestartPolicy
             {
@@ -564,7 +552,7 @@ public partial class DockerService : IDockerService, IDisposable
 
         if (string.IsNullOrWhiteSpace(effectiveToken))
         {
-            throw new InvalidOperationException("Cloudflare Tunnel Token ontbreekt in de server- of app-instellingen.");
+            throw new InvalidOperationException(LocalizationService.Instance.Get("Docker_CloudflareTokenMissing"));
         }
 
         var trimmedToken = effectiveToken.Trim();
@@ -573,9 +561,40 @@ public partial class DockerService : IDockerService, IDisposable
             .ToList();
     }
 
-    private async Task<string> EnsureProfileNetworkAsync(DockerClient client, string profileName, CancellationToken ct)
+    internal static (Dictionary<string, EmptyStruct> ExposedPorts, Dictionary<string, IList<PortBinding>> PortBindings) BuildPortBindings(IEnumerable<PortMapping>? ports)
     {
-        var safeProfile = string.Join("", profileName.Where(char.IsLetterOrDigit)).ToLowerInvariant();
+        var exposedPorts = new Dictionary<string, EmptyStruct>();
+        var portBindings = new Dictionary<string, IList<PortBinding>>();
+
+        if (ports == null) return (exposedPorts, portBindings);
+
+        foreach (var p in ports)
+        {
+            if (p == null) continue;
+            var protocol = string.IsNullOrWhiteSpace(p.Protocol) ? "tcp" : p.Protocol.Trim().ToLowerInvariant();
+            var key = $"{p.ContainerPort}/{protocol}";
+            exposedPorts[key] = new EmptyStruct();
+
+            if (!portBindings.TryGetValue(key, out var list))
+            {
+                list = new List<PortBinding>();
+                portBindings[key] = list;
+            }
+
+            list.Add(new PortBinding
+            {
+                HostIP = string.IsNullOrWhiteSpace(p.HostIp) ? "0.0.0.0" : p.HostIp.Trim(),
+                HostPort = p.HostPort.ToString()
+            });
+        }
+
+        return (exposedPorts, portBindings);
+    }
+
+    private async Task<string> EnsureProfileNetworkAsync(DockerClient client, string? profileName, CancellationToken ct)
+    {
+        var rawProfile = profileName ?? "default";
+        var safeProfile = string.Join("", rawProfile.Where(char.IsLetterOrDigit)).ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(safeProfile)) safeProfile = "default";
         var networkName = $"dockermanager_{safeProfile}";
 
@@ -591,6 +610,10 @@ public partial class DockerService : IDockerService, IDisposable
                     CheckDuplicate = true
                 }, ct);
             }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch { }
 

@@ -320,10 +320,8 @@
                                         <Button Command="{Binding OpenInBrowserCommand}" 
                                                 Background="Transparent" BorderThickness="0" Padding="0" Margin="0,0,0,4"
                                                 HorizontalAlignment="Left" Cursor="Hand"
+                                                ToolTip="{Binding WebUrlToolTip}"
                                                 Visibility="{Binding HasWebPort, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                            <Button.ToolTip>
-                                                <TextBlock Text="{Binding WebUrl, StringFormat='Klik om {0} direct in browser te openen'}"/>
-                                            </Button.ToolTip>
                                             <DockPanel>
                                                 <TextBlock Text="🌐 Link:" FontSize="11" FontWeight="SemiBold" Foreground="#0284C7" Width="55"/>
                                                 <TextBlock Text="{Binding WebUrl}" FontSize="11" FontWeight="Bold" Foreground="#0284C7" TextDecorations="Underline"/>
@@ -335,10 +333,8 @@
                                         <Button Command="{Binding OpenCloudflareUrlCommand}" 
                                                 Background="Transparent" BorderThickness="0" Padding="0" Margin="0,0,0,4"
                                                 HorizontalAlignment="Left" Cursor="Hand"
+                                                ToolTip="{Binding CloudflareUrlToolTip}"
                                                 Visibility="{Binding HasCloudflareUrl, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                            <Button.ToolTip>
-                                                <TextBlock Text="{Binding CloudflareUrl, StringFormat='Klik om publieke HTTPS Cloudflare URL {0} direct te openen'}"/>
-                                            </Button.ToolTip>
                                             <DockPanel>
                                                 <TextBlock Text="☁️ Public:" FontSize="11" FontWeight="SemiBold" Foreground="#EA580C" Width="55"/>
                                                 <TextBlock Text="{Binding CloudflareUrl}" FontSize="11" FontWeight="Bold" Foreground="#EA580C" TextDecorations="Underline"/>

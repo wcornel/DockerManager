@@ -76,10 +76,11 @@ public partial class ImportComposeViewModel : ObservableObject
     [RelayCommand]
     private void BrowseFile()
     {
+        var loc = LocalizationService.Instance;
         using var dialog = new System.Windows.Forms.OpenFileDialog
         {
-            Title = "Selecteer docker-compose YAML bestand",
-            Filter = "Docker Compose bestanden (*.yml;*.yaml)|*.yml;*.yaml|Alle bestanden (*.*)|*.*",
+            Title = loc.Get("ImportCompose_SelectFileTitle"),
+            Filter = loc.Get("ImportCompose_FileFilter"),
             Multiselect = false
         };
 
@@ -93,7 +94,7 @@ public partial class ImportComposeViewModel : ObservableObject
             }
             catch (Exception ex)
             {
-                StatusMessage = $"❌ Fout bij openen van bestand: {ex.Message}";
+                StatusMessage = loc.Get("ImportCompose_OpenError", ex.Message);
             }
         }
     }
@@ -101,9 +102,10 @@ public partial class ImportComposeViewModel : ObservableObject
     [RelayCommand]
     public void ParseYaml()
     {
+        var loc = LocalizationService.Instance;
         if (string.IsNullOrWhiteSpace(YamlText))
         {
-            StatusMessage = "⚠️ Plak of open eerst een geldige docker-compose YAML tekst.";
+            StatusMessage = loc.Get("ImportCompose_EmptyYaml");
             HasParsedServices = false;
             ParsedServices.Clear();
             return;
@@ -125,7 +127,7 @@ public partial class ImportComposeViewModel : ObservableObject
 
             _lastParsedYaml = YamlText;
             HasParsedServices = true;
-            StatusMessage = $"✅ {result.ParsedServices.Count} container(s) succesvol herkend in YAML!";
+            StatusMessage = loc.Get("ImportCompose_ParsedSuccess", result.ParsedServices.Count);
         }
         else
         {
@@ -147,7 +149,7 @@ public partial class ImportComposeViewModel : ObservableObject
 
         if (TargetIsNewProfile && string.IsNullOrWhiteSpace(NewProfileName))
         {
-            StatusMessage = "⚠️ Vul een geldige naam in voor het nieuwe profiel.";
+            StatusMessage = LocalizationService.Instance.Get("ImportCompose_EmptyProfileName");
             return;
         }
 

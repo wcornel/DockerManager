@@ -1,6 +1,6 @@
 Add-Type -AssemblyName System.Drawing
 
-$outputPath = "c:\Rider\DockerTool\src\DockerManager.App\app.ico"
+$outputPath = Join-Path $PSScriptRoot "src\DockerManager.App\app.ico"
 $sizes = @(256, 128, 64, 48, 32, 16)
 $pngStreams = @()
 
@@ -93,37 +93,41 @@ foreach ($size in $sizes) {
 # Write multi-resolution ICO file
 $fs = [System.IO.FileStream]::new($outputPath, [System.IO.FileMode]::Create)
 $bw = [System.IO.BinaryWriter]::new($fs)
-
-$bw.Write([uint16]0)
-$bw.Write([uint16]1)
-$bw.Write([uint16]$sizes.Count)
-
-$offset = 6 + ($sizes.Count * 16)
-
-for ($i = 0; $i -lt $sizes.Count; $i++) {
-    $s = $sizes[$i]
-    $w = if ($s -ge 256) { 0 } else { $s }
-    $h = if ($s -ge 256) { 0 } else { $s }
-    $bytes = $pngStreams[$i].ToArray()
-
-    $bw.Write([byte]$w)
-    $bw.Write([byte]$h)
-    $bw.Write([byte]0)
-    $bw.Write([byte]0)
+try {
+    $bw.Write([uint16]0)
     $bw.Write([uint16]1)
-    $bw.Write([uint16]32)
-    $bw.Write([uint32]$bytes.Length)
-    $bw.Write([uint32]$offset)
+    $bw.Write([uint16]$sizes.Count)
 
-    $offset += $bytes.Length
+    $offset = 6 + ($sizes.Count * 16)
+
+    for ($i = 0; $i -lt $sizes.Count; $i++) {
+        $s = $sizes[$i]
+        $w = if ($s -ge 256) { 0 } else { $s }
+        $h = if ($s -ge 256) { 0 } else { $s }
+        $bytes = $pngStreams[$i].ToArray()
+
+        $bw.Write([byte]$w)
+        $bw.Write([byte]$h)
+        $bw.Write([byte]0)
+        $bw.Write([byte]0)
+        $bw.Write([uint16]1)
+        $bw.Write([uint16]32)
+        $bw.Write([uint32]$bytes.Length)
+        $bw.Write([uint32]$offset)
+
+        $offset += $bytes.Length
+    }
+
+    for ($i = 0; $i -lt $sizes.Count; $i++) {
+        $bytes = $pngStreams[$i].ToArray()
+        $bw.Write($bytes)
+        $pngStreams[$i].Dispose()
+    }
+
+    $bw.Flush()
 }
-
-for ($i = 0; $i -lt $sizes.Count; $i++) {
-    $bytes = $pngStreams[$i].ToArray()
-    $bw.Write($bytes)
-    $pngStreams[$i].Dispose()
+finally {
+    $bw.Dispose()
+    $fs.Dispose()
 }
-
-$bw.Flush()
-$fs.Close()
 Write-Output "Successfully generated: $outputPath"

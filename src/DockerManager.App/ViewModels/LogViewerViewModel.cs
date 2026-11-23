@@ -15,7 +15,10 @@ public partial class LogViewerViewModel : ObservableObject
     private string _title;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StreamingStatusText))]
     private bool _isStreaming;
+
+    public string StreamingStatusText => LocalizationService.Instance.Get(IsStreaming ? "LogViewer_StatusStreaming" : "LogViewer_StatusStopped");
 
     public event Action<string>? OnLineAppended;
 
@@ -38,14 +41,15 @@ public partial class LogViewerViewModel : ObservableObject
             try { previous.Dispose(); } catch (ObjectDisposedException) { }
         }
 
+        var loc = LocalizationService.Instance;
         var token = cts.Token;
         IsStreaming = true;
 
-        OnLineAppended?.Invoke($"--- Log Console voor container: {_containerName} ---");
+        OnLineAppended?.Invoke(loc.Get("LogViewer_ConsoleBanner", _containerName));
 
         if (_initialLogs.Count > 0)
         {
-            OnLineAppended?.Invoke("=== Recente Download & Lifecycle Activiteit ===");
+            OnLineAppended?.Invoke(loc.Get("LogViewer_RecentActivityHeader"));
             foreach (var log in _initialLogs)
             {
                 OnLineAppended?.Invoke(log);
@@ -65,11 +69,11 @@ public partial class LogViewerViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            OnLineAppended?.Invoke("--- Log streaming gestopt door gebruiker ---");
+            OnLineAppended?.Invoke(loc.Get("LogViewer_StoppedByUser"));
         }
         catch (Exception ex)
         {
-            OnLineAppended?.Invoke($"--- Fout bij ophalen van logs: {ex.Message} ---");
+            OnLineAppended?.Invoke(loc.Get("LogViewer_FetchError", ex.Message));
         }
         finally
         {

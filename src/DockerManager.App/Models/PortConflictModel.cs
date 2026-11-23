@@ -34,14 +34,16 @@ public class PortAnalysisItem
 
     public string SeverityBadgeText => Severity switch
     {
-        PortConflictSeverity.Conflict => "🔴 Conflict",
-        PortConflictSeverity.Warning => "🟡 Waarschuwing",
-        _ => "🟢 Vrij / OK"
+        PortConflictSeverity.Conflict => Services.LocalizationService.Instance.Get("Ports_SeverityConflict"),
+        PortConflictSeverity.Warning => Services.LocalizationService.Instance.Get("Ports_SeverityWarning"),
+        _ => Services.LocalizationService.Instance.Get("Ports_SeverityOk")
     };
+
+    public string RecommendationText => Services.LocalizationService.Instance.Get("Ports_RecommendationPrefix", Recommendation);
 
     public string UsagesSummary => Usages.Count > 0
         ? string.Join(" | ", Usages.Select(u => $"{u.Name}: {u.Details}"))
-        : "Geen actieve toewijzingen";
+        : Services.LocalizationService.Instance.Get("Ports_NoActiveUsages");
 }
 
 public class ActiveDockerPortInfo

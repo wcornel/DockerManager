@@ -29,7 +29,7 @@
                 <TextBlock Text="{helpers:Loc LogViewer_Header}" FontSize="18" FontWeight="SemiBold" Foreground="#0F172A"/>
                 <Ellipse Width="10" Height="10" Margin="12,0,6,0"
                          Fill="{Binding IsStreaming, Converter={StaticResource BooleanToBrushConverter}, FallbackValue='#16A34A'}"/>
-                <TextBlock Text="{Binding IsStreaming, StringFormat='Streaming: {0}'}" FontSize="12" Foreground="#64748B" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding StreamingStatusText}" FontSize="12" Foreground="#64748B" VerticalAlignment="Center"/>
             </StackPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal">
@@ -61,7 +61,7 @@
         <DockPanel Grid.Row="2" Margin="0,12,0,0">
             <CheckBox x:Name="AutoScrollCheckBox" Content="{helpers:Loc LogViewer_AutoScroll}" IsChecked="True" 
                       Foreground="#475569" VerticalAlignment="Center" DockPanel.Dock="Left"/>
-            <Button Content="{helpers:Loc General_Close}" Click="CloseButton_Click" HorizontalAlignment="Right" Padding="16,6"
+            <Button Content="{helpers:Loc General_Close}" Click="CloseButton_Click" IsCancel="True" HorizontalAlignment="Right" Padding="16,6"
                     Background="#F1F5F9" Foreground="#334155" BorderBrush="#CBD5E1" BorderThickness="1" Cursor="Hand"/>
         </DockPanel>
     </Grid>

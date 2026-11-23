@@ -217,7 +217,6 @@ public partial class ServerSettingsTabViewModel : SettingsTabViewModel
         _dockerService = dockerService;
         _getAllProfilesAcrossServers = getAllProfilesAcrossServers;
 
-        Icon = "🖥️";
         Name = server.Name;
         UpdateHeader(server.Name);
         ProfilesSubfolder = server.ProfilesSubfolder;

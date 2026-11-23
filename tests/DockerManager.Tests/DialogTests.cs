@@ -15,12 +15,14 @@ using Xunit;
 
 namespace DockerManager.Tests;
 
+[Collection("Localization")]
 public class DialogTests
 {
 
     [Fact]
     public void TestAllDialogs_InstantiateWithoutErrors()
     {
+        var prevLang = LocalizationService.Instance.CurrentLanguage;
         Exception? threadException = null;
         var thread = new Thread(() =>
         {
@@ -97,22 +99,13 @@ public class DialogTests
                 importDlg.UpdateLayout();
                 Assert.NotNull(importDlg);
 
-                // 9. AddProfileDialog
-                var addProfileDlg = new AddProfileDialog(new[] { "Existing" }, new List<ProfileModel>(), sett, cred);
-                Assert.NotNull(addProfileDlg);
-
-                // 10. ProfileSettingsDialog
+                // 9. PortConflictDialog
                 var testProfile = new ProfileModel { Name = "TestProfile" };
-                var profSettingsVm = new ProfileSettingsViewModel(testProfile, new[] { testProfile }, sett, cred, cf, dock);
-                var profSettingsDlg = new ProfileSettingsDialog(profSettingsVm);
-                Assert.NotNull(profSettingsDlg);
-
-                // 11. PortConflictDialog
                 var portConflictVm = new PortConflictViewModel(dock, new[] { testProfile }, "TestProfile", "Lokale Docker Desktop", false);
                 var portConflictDlg = new PortConflictDialog(portConflictVm);
                 Assert.NotNull(portConflictDlg);
-                Assert.Equal("🖥️ Server: Lokale Docker Desktop", portConflictVm.ServerBadgeText);
-                Assert.Equal("📄 Profiel: TestProfile", portConflictVm.ProfileBadgeText);
+                Assert.Equal(LocalizationService.Instance.Get("Ports_ServerBadge", "Lokale Docker Desktop"), portConflictVm.ServerBadgeText);
+                Assert.Equal(LocalizationService.Instance.Get("Ports_ProfileBadge", "TestProfile"), portConflictVm.ProfileBadgeText);
             }
             catch (Exception ex)
             {
@@ -126,13 +119,20 @@ public class DialogTests
             }
         });
 
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join();
-
-        if (threadException != null)
+        try
         {
-            throw new Exception($"Dialog instantiation failed: {threadException}", threadException);
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+            thread.Join();
+
+            if (threadException != null)
+            {
+                throw new Exception($"Dialog instantiation failed: {threadException}", threadException);
+            }
+        }
+        finally
+        {
+            LocalizationService.Instance.SetLanguage(prevLang);
         }
     }
 
@@ -244,24 +244,31 @@ public class DialogTests
     public void TestLocalizationService_SwitchesLanguagesCorrectly()
     {
         var loc = LocalizationService.Instance;
+        var prevLang = loc.CurrentLanguage;
+        try
+        {
+            // 1. Dutch
+            loc.SetLanguage("nl");
+            Assert.Equal("nl", loc.CurrentLanguage);
+            Assert.Equal("📁 Bestand", loc["Menu_File"]);
+            Assert.Equal("▶ Alle containers starten", loc["Menu_StartAll"]);
+            Assert.Equal("3 containers", loc.Get("Toolbar_ContainersCount", 3));
 
-        // 1. Dutch
-        loc.SetLanguage("nl");
-        Assert.Equal("nl", loc.CurrentLanguage);
-        Assert.Equal("📁 Bestand", loc["Menu_File"]);
-        Assert.Equal("▶ Alle containers starten", loc["Menu_StartAll"]);
-        Assert.Equal("3 containers", loc.Get("Toolbar_ContainersCount", 3));
+            // 2. English
+            loc.SetLanguage("en");
+            Assert.Equal("en", loc.CurrentLanguage);
+            Assert.Equal("📁 File", loc["Menu_File"]);
+            Assert.Equal("▶ Start All Containers", loc["Menu_StartAll"]);
+            Assert.Equal("3 containers", loc.Get("Toolbar_ContainersCount", 3));
 
-        // 2. English
-        loc.SetLanguage("en");
-        Assert.Equal("en", loc.CurrentLanguage);
-        Assert.Equal("📁 File", loc["Menu_File"]);
-        Assert.Equal("▶ Start All Containers", loc["Menu_StartAll"]);
-        Assert.Equal("3 containers", loc.Get("Toolbar_ContainersCount", 3));
-
-        // 3. Fallback to Dutch
-        loc.SetLanguage("nl");
-        Assert.Equal("📁 Bestand", loc["Menu_File"]);
+            // 3. Fallback to Dutch
+            loc.SetLanguage("nl");
+            Assert.Equal("📁 Bestand", loc["Menu_File"]);
+        }
+        finally
+        {
+            loc.SetLanguage(prevLang);
+        }
     }
 
     [Fact]
@@ -1022,9 +1029,9 @@ services:
         Assert.True(customProfile.Cloudflare.HasConfiguration);
         Assert.True(customProfile.Registry.HasConfiguration);
 
-        // 4. Test ProfileSettingsViewModel Copy From Global Defaults
+        // 4. Test ProfileSettingsItemViewModel Copy From Global Defaults
         var targetProfile = new ProfileModel { Name = "NewProfile" };
-        var vm = new ProfileSettingsViewModel(targetProfile, new[] { customProfile }, sett, cred, cf, dock);
+        var vm = new ProfileSettingsItemViewModel(targetProfile, sett, cred, cf, dock, new[] { customProfile });
 
         // Verify global copy source is present and works
         var globalSource = vm.CopySources.First(s => s.IsGlobalDefaults);
@@ -1045,11 +1052,10 @@ services:
         Assert.Equal("docker.io", vm.RegistryServer);
         Assert.Equal("customorg", vm.RegistryNamespace);
 
-            // 6. Test Save
-            vm.SaveCommand.Execute(null);
-            Assert.True(vm.IsSaved);
-            Assert.Equal("customdomain.nl", targetProfile.Cloudflare.Domain);
-            Assert.Equal("customorg", targetProfile.Registry.Namespace);
+        // 6. Test ApplyToProfile
+        vm.ApplyToProfile();
+        Assert.Equal("customdomain.nl", targetProfile.Cloudflare.Domain);
+        Assert.Equal("customorg", targetProfile.Registry.Namespace);
     }
 
     [Fact]
@@ -1115,75 +1121,51 @@ services:
     }
 
     [Fact]
-    public void TestProfileSettingsViewModel_AddAndManageProfiles()
-    {
-        using var env = new TestEnvironmentScope();
-        var cred = env.Credentials;
-        var sett = env.Settings;
-        var dock = new DockerService(sett, cred);
-        var cf = new CloudflareService(sett, cred);
-
-        var p1 = new ProfileModel { Name = "Profile1" };
-        var p2 = new ProfileModel { Name = "Profile2" };
-        var vm = new ProfileSettingsViewModel(p1, new[] { p1, p2 }, sett, cred, cf, dock);
-
-        Assert.Equal(2, vm.Profiles.Count);
-        Assert.Equal("Profile1", vm.EditingProfile?.Name);
-
-        // Add Profile
-        vm.AddProfileCommand.Execute(null);
-        Assert.Equal(3, vm.Profiles.Count);
-        Assert.NotNull(vm.EditingProfile);
-        Assert.StartsWith("Profiel", vm.EditingProfile.Name);
-
-        // Switch back to Profile1
-        vm.EditingProfile = p1;
-        Assert.Equal("Profile1", vm.Name);
-
-        // Edit description
-        vm.Description = "Updated Desc";
-        vm.EditingProfile = p2; // triggers commit to Profile1
-        Assert.Equal("Updated Desc", p1.Description);
-    }
-
-    [Fact]
     public void TestUnifiedSettings_ServerTabsAndProfiles()
     {
-        using var env = new TestEnvironmentScope();
-        var cred = env.Credentials;
-        var sett = env.Settings;
-        var prof = new GitHubProfileService(sett, cred);
-        var dock = new DockerService(sett, cred);
-        var cf = new CloudflareService(sett, cred);
+        var prevLang = LocalizationService.Instance.CurrentLanguage;
+        try
+        {
+            using var env = new TestEnvironmentScope();
+            var cred = env.Credentials;
+            var sett = env.Settings;
+            var prof = new GitHubProfileService(sett, cred);
+            var dock = new DockerService(sett, cred);
+            var cf = new CloudflareService(sett, cred);
 
-        var vm = new SettingsViewModel(sett, cred, prof, dock, cf);
+            var vm = new SettingsViewModel(sett, cred, prof, dock, cf);
 
-        // General tab should exist
-        Assert.NotNull(vm.GeneralTab);
-        Assert.Equal("⚙️ Algemeen", vm.GeneralTab.Header);
-        Assert.True(vm.Tabs.Count >= 2); // At least General + Default local server tab
+            // General tab should exist
+            Assert.NotNull(vm.GeneralTab);
+            Assert.Equal(LocalizationService.Instance.Get("Settings_TabGeneral"), vm.GeneralTab.Header);
+            Assert.True(vm.Tabs.Count >= 2); // At least General + Default local server tab
 
-        // Server tab
-        var serverTabs = vm.Tabs.OfType<ServerSettingsTabViewModel>().ToList();
-        Assert.NotEmpty(serverTabs);
-        var firstServerTab = serverTabs[0];
-        Assert.NotEmpty(firstServerTab.Profiles);
-        Assert.NotNull(firstServerTab.SelectedProfile);
+            // Server tab
+            var serverTabs = vm.Tabs.OfType<ServerSettingsTabViewModel>().ToList();
+            Assert.NotEmpty(serverTabs);
+            var firstServerTab = serverTabs[0];
+            Assert.NotEmpty(firstServerTab.Profiles);
+            Assert.NotNull(firstServerTab.SelectedProfile);
 
-        // Add a new server tab
-        vm.AddServerCommand.Execute(null);
-        var updatedServerTabs = vm.Tabs.OfType<ServerSettingsTabViewModel>().ToList();
-        Assert.Equal(serverTabs.Count + 1, updatedServerTabs.Count);
+            // Add a new server tab
+            vm.AddServerCommand.Execute(null);
+            var updatedServerTabs = vm.Tabs.OfType<ServerSettingsTabViewModel>().ToList();
+            Assert.Equal(serverTabs.Count + 1, updatedServerTabs.Count);
 
-        var newServerTab = updatedServerTabs.Last();
-        Assert.StartsWith("🖥️ Server", newServerTab.Header);
-        Assert.Single(newServerTab.Profiles);
-        Assert.Equal("Standaard", newServerTab.SelectedProfile?.Name);
+            var newServerTab = updatedServerTabs.Last();
+            Assert.StartsWith("🖥️ Server", newServerTab.Header);
+            Assert.Single(newServerTab.Profiles);
+            Assert.Equal("Standaard", newServerTab.SelectedProfile?.Name);
 
-        // Add a profile to the new server tab
-        newServerTab.AddProfileCommand.Execute(null);
-        Assert.Equal(2, newServerTab.Profiles.Count);
-        Assert.Equal("Profiel 2", newServerTab.SelectedProfile?.Name);
+            // Add a profile to the new server tab
+            newServerTab.AddProfileCommand.Execute(null);
+            Assert.Equal(2, newServerTab.Profiles.Count);
+            Assert.Equal("Profiel 2", newServerTab.SelectedProfile?.Name);
+        }
+        finally
+        {
+            LocalizationService.Instance.SetLanguage(prevLang);
+        }
     }
 
     [Fact]

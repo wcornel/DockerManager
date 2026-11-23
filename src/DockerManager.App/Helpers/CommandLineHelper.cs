@@ -24,10 +24,11 @@ public static class CommandLineHelper
         {
             try
             {
-                var jsonList = JsonSerializer.Deserialize<List<string>>(trimmed);
-                if (jsonList != null && jsonList.Count > 0)
+                var jsonList = JsonSerializer.Deserialize<List<string?>>(trimmed);
+                if (jsonList != null)
                 {
-                    return jsonList;
+                    var nonNullList = jsonList.Where(s => s != null).Select(s => s!).ToList();
+                    return nonNullList.Count > 0 ? nonNullList : null;
                 }
             }
             catch
@@ -58,8 +59,24 @@ public static class CommandLineHelper
 
             if (c == '\\' && !inSingleQuotes)
             {
-                escaped = true;
-                tokenHasStarted = true;
+                if (inDoubleQuotes)
+                {
+                    if (i + 1 < trimmed.Length && (trimmed[i + 1] == '"' || trimmed[i + 1] == '\\' || trimmed[i + 1] == '$' || trimmed[i + 1] == '`'))
+                    {
+                        escaped = true;
+                        tokenHasStarted = true;
+                    }
+                    else
+                    {
+                        current.Append(c);
+                        tokenHasStarted = true;
+                    }
+                }
+                else
+                {
+                    escaped = true;
+                    tokenHasStarted = true;
+                }
                 continue;
             }
 

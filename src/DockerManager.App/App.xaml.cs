@@ -14,13 +14,12 @@ public partial class App : System.Windows.Application
     private Mutex? _instanceMutex;
     private bool _ownsMutex;
     private EventWaitHandle? _restoreEvent;
+    private int _handlingUnhandledException;
     private const string MutexName = "DockerManager_SingleInstance_Mutex";
     private const string EventName = "DockerManager_RestoreEvent";
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        Velopack.VelopackApp.Build().Run();
-
         _instanceMutex = new Mutex(true, MutexName, out _ownsMutex);
 
         if (!_ownsMutex)
@@ -213,14 +212,35 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        e.Handled = true;
-        AppLogger.LogError("DispatcherUnhandledException", e.Exception);
-        var message = !string.IsNullOrWhiteSpace(e.Exception.Message)
-            ? e.Exception.Message
-            : $"{e.Exception.GetType().Name} ({e.Exception.HResult:X8})";
+        if (e.Exception is OutOfMemoryException or StackOverflowException)
+        {
+            AppLogger.LogError("DispatcherUnhandledException (Fatal)", e.Exception);
+            return;
+        }
 
-        MessageBox.Show($"Er is een onverwachte fout opgetreden in de interface:\n\n{message}",
-            "DockerManager — Melding", MessageBoxButton.OK, MessageBoxImage.Warning);
+        if (Interlocked.CompareExchange(ref _handlingUnhandledException, 1, 0) != 0)
+        {
+            AppLogger.LogError("DispatcherUnhandledException (Nested)", e.Exception);
+            return;
+        }
+
+        try
+        {
+            e.Handled = true;
+            AppLogger.LogError("DispatcherUnhandledException", e.Exception);
+            var message = !string.IsNullOrWhiteSpace(e.Exception.Message)
+                ? e.Exception.Message
+                : $"{e.Exception.GetType().Name} ({e.Exception.HResult:X8})";
+
+            var loc = LocalizationService.Instance;
+            WpfDialogService.Instance.ShowWarning(
+                loc.Get("App_UnexpectedUiError", message),
+                loc.Get("App_NoticeTitle"));
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _handlingUnhandledException, 0);
+        }
     }
 
     private void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)
@@ -228,8 +248,16 @@ public partial class App : System.Windows.Application
         if (e.ExceptionObject is Exception ex)
         {
             AppLogger.LogError("CurrentDomain_UnhandledException", ex);
-            MessageBox.Show($"Kritieke fout opgetreden:\n\n{ex.Message}",
-                "DockerManager — Fout", MessageBoxButton.OK, MessageBoxImage.Error);
+            if (!e.IsTerminating && Dispatcher != null && !Dispatcher.HasShutdownStarted)
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    var loc = LocalizationService.Instance;
+                    WpfDialogService.Instance.ShowWarning(
+                        loc.Get("App_UnexpectedUiError", ex.Message),
+                        loc.Get("App_NoticeTitle"));
+                });
+            }
         }
     }
 

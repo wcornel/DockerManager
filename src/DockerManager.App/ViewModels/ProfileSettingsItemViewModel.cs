@@ -10,6 +10,16 @@ using DockerManager.App.Services;
 
 namespace DockerManager.App.ViewModels;
 
+public class ProfileCopySource
+{
+    public string DisplayName { get; set; } = string.Empty;
+    public bool IsGlobalDefaults { get; set; }
+    public bool IsServerDefaults { get; set; }
+    public DockerServerEnvironment? SourceServer { get; set; }
+    public ProfileModel? SourceProfile { get; set; }
+    public override string ToString() => DisplayName;
+}
+
 public partial class ProfileSettingsItemViewModel : ObservableObject
 {
     private readonly ISettingsService _settingsService;

@@ -30,9 +30,6 @@ public partial class SettingsViewModel : ObservableObject
     public ObservableCollection<DockerServerEnvironment> Servers { get; } = new();
 
     [ObservableProperty]
-    private DockerServerEnvironment? _editingServer;
-
-    [ObservableProperty]
     private bool _isSaved;
 
     public event Action? RequestClose;
@@ -159,8 +156,6 @@ public partial class SettingsViewModel : ObservableObject
             var activeTab = Tabs.OfType<ServerSettingsTabViewModel>().FirstOrDefault(s => s.Server.Id.Equals(activeId, StringComparison.OrdinalIgnoreCase));
             SelectedTab = (SettingsTabViewModel?)activeTab ?? GeneralTab;
         }
-
-        EditingServer = Servers.FirstOrDefault(x => x.Id.Equals(_settingsService.Settings.ActiveServerId, StringComparison.OrdinalIgnoreCase)) ?? Servers.FirstOrDefault();
     }
 
     public IEnumerable<ProfileModel> GetAllProfilesAcrossTabs()
